@@ -17,6 +17,11 @@ loom is built primarily for Hyprland on Arch, with live theme inheritance from [
 - Keyboard-first, with a `Ctrl+K` cheat sheet
 - Zoom with `Ctrl` + mouse wheel
 
+<img width="1708" height="1362" alt="image" src="https://github.com/user-attachments/assets/a5a10553-2376-4c03-8d26-e949bb714722" />
+<img width="1707" height="1362" alt="image" src="https://github.com/user-attachments/assets/8278103b-4d27-42b6-b2a8-4e81a81d023a" />
+
+
+
 ## Develop
 
 Install build dependencies once:

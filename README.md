@@ -120,6 +120,9 @@ update-desktop-database ~/.local/share/applications
 | `Ctrl+Shift+F` | zen mode |
 | `Ctrl` + wheel | zoom |
 
+<img width="1709" height="1364" alt="image" src="https://github.com/user-attachments/assets/02b6e0b6-f8d2-4bd6-85f7-6cf0629b7fd9" />
+
+
 ## Files
 
 - Config: `~/.config/loom/config.toml`
@@ -127,17 +130,6 @@ update-desktop-database ~/.local/share/applications
 - Scratch notes: `~/.local/state/loom/scratch/`
 
 Unnamed tabs survive reboot. Named files autosave by default (toggle in settings).
-
-## Hyprland
-
-Suggested rules so it sits like a floating notepad:
-
-```
-windowrule = float, class:^(loom)$
-windowrule = size 60% 70%, class:^(loom)$
-windowrule = opacity 0.96, class:^(loom)$
-bind = SUPER, N, exec, loom
-```
 
 ## Theme
 

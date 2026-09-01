@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/">
+        <file>fonts/DepartureMono-Regular.otf</file>
+        <file>icons/loom.svg</file>
+    </qresource>
+</RCC>

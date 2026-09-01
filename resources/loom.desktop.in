@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=loom
+GenericName=Markdown scratchpad
+Comment=Minimal retro markdown scratchpad
+Exec=@CMAKE_INSTALL_PREFIX@/bin/loom %F
+Icon=loom
+Terminal=false
+Categories=Utility;
+MimeType=text/plain;text/markdown;text/x-markdown;
+StartupWMClass=loom
+StartupNotify=true
+SingleMainWindow=true
+Keywords=notes;markdown;scratchpad;editor;

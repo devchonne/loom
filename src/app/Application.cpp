@@ -21,7 +21,7 @@
 Application::Application(int& argc, char** argv)
     : QApplication(argc, argv) {
     setApplicationName(QStringLiteral("loom"));
-    setApplicationVersion(QStringLiteral("0.1.0"));
+    setApplicationVersion(QStringLiteral("0.1.0")); // x-release-please-version
     setOrganizationName(QStringLiteral("loom"));
     setDesktopFileName(QStringLiteral("loom"));
     setWindowIcon(QIcon(QStringLiteral(":/icons/loom.svg")));

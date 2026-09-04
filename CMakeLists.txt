@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(loom VERSION 0.1.0 LANGUAGES CXX)
+project(loom VERSION 0.1.0 LANGUAGES CXX) # x-release-please-version
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -25,9 +25,11 @@ set(LOOM_SOURCES
     src/core/Settings.cpp
     src/core/SlashCommand.cpp
     src/markdown/CodeSyntax.cpp
+    src/markdown/DocumentOutline.cpp
     src/markdown/MarkdownHighlighter.cpp
     src/markdown/MarkdownRules.cpp
     src/markdown/RevealController.cpp
+    src/markdown/TableFormat.cpp
     src/theme/ChromeStyle.cpp
     src/theme/Fonts.cpp
     src/theme/OmarchyThemeSource.cpp
@@ -38,6 +40,7 @@ set(LOOM_SOURCES
     src/ui/Editor.cpp
     src/ui/FindBar.cpp
     src/ui/MainWindow.cpp
+    src/ui/OutlineOverlay.cpp
     src/ui/SettingsDialog.cpp
     src/ui/StatusBar.cpp
     src/ui/TabStrip.cpp
@@ -94,6 +97,10 @@ add_executable(loom_tests
     tests/slash_command_test.cpp
     tests/theme_parse_test.cpp
     tests/edit_history_test.cpp
+    tests/document_outline_test.cpp
+    tests/table_format_test.cpp
+    tests/editor_table_test.cpp
+    tests/cheat_sheet_test.cpp
 )
 target_link_libraries(loom_tests PRIVATE loom_lib GTest::gtest)
 target_compile_options(loom_tests PRIVATE -Wall -Wextra -Wpedantic)

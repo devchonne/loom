@@ -16,7 +16,27 @@ static void markerPair(QVector<Span>& spans, int open, int openLen, int close, i
     addSpan(spans, close, closeLen, revealed ? SpanKind::Marker : SpanKind::HiddenMarker);
 }
 
-static void parseInline(const QString& text, int base, QVector<Span>& spans, bool revealed, int heading) {
+static QVector<int> findUnescapedPipes(const QString& text) {
+    QVector<int> positions;
+    for (int i = 0; i < text.size(); ++i) {
+        if (text[i] != QLatin1Char('|')) {
+            continue;
+        }
+        int backslashes = 0;
+        int j = i - 1;
+        while (j >= 0 && text[j] == QLatin1Char('\\')) {
+            ++backslashes;
+            --j;
+        }
+        if (backslashes % 2 == 0) {
+            positions.push_back(i);
+        }
+    }
+    return positions;
+}
+
+static void parseInline(const QString& text, int base, QVector<Span>& spans, bool revealed, int heading,
+                        QVector<LinkRef>* links = nullptr) {
     const int n = text.size();
     int i = 0;
     auto at = [&](int idx) -> QChar { return idx < n ? text[idx] : QChar(); };
@@ -37,10 +57,16 @@ static void parseInline(const QString& text, int base, QVector<Span>& spans, boo
             if (rb > i && at(rb + 1) == QLatin1Char('(')) {
                 const int rp = text.indexOf(QLatin1Char(')'), rb + 2);
                 if (rp > rb) {
+                    const QString target = text.mid(rb + 2, rp - rb - 2).trimmed();
+                    const bool anchor = target.startsWith(QLatin1Char('#'));
+                    const SpanKind textKind = anchor ? SpanKind::AnchorLinkText : SpanKind::LinkText;
                     addSpan(spans, base + i, 1, revealed ? SpanKind::Marker : SpanKind::HiddenMarker);
-                    addSpan(spans, base + i + 1, rb - i - 1, SpanKind::LinkText, heading);
+                    addSpan(spans, base + i + 1, rb - i - 1, textKind, heading);
                     addSpan(spans, base + rb, rp - rb + 1,
                             revealed ? SpanKind::LinkUrl : SpanKind::HiddenMarker);
+                    if (links) {
+                        links->push_back(LinkRef{base + i, rp - i + 1, target});
+                    }
                     i = rp + 1;
                     continue;
                 }
@@ -82,6 +108,38 @@ static void parseInline(const QString& text, int base, QVector<Span>& spans, boo
         }
 
         ++i;
+    }
+}
+
+static void parseTableRow(const QString& text, bool isHeader, bool revealed, QVector<Span>& spans,
+                          QVector<QPair<int, int>>& cells, QVector<int>& pipeCols,
+                          QVector<LinkRef>& links) {
+    const QVector<int> pipes = findUnescapedPipes(text);
+    const SpanKind cellKind = isHeader ? SpanKind::TableHeaderText : SpanKind::TableCellText;
+    pipeCols = pipes;
+
+    for (int p : pipes) {
+        addSpan(spans, p, 1, SpanKind::TablePipe);
+    }
+    for (int i = 0; i + 1 < pipes.size(); ++i) {
+        const int start = pipes[i] + 1;
+        const int length = pipes[i + 1] - start;
+        if (length <= 0) {
+            continue;
+        }
+        cells.push_back({start, length});
+        addSpan(spans, start, length, cellKind);
+        parseInline(text.mid(start, length), start, spans, revealed, 0, &links);
+    }
+    if (!pipes.isEmpty()) {
+        const int lastPipe = pipes.last();
+        const int tailStart = lastPipe + 1;
+        const int tailLength = text.size() - tailStart;
+        if (tailLength > 0 && !text.mid(tailStart, tailLength).trimmed().isEmpty()) {
+            cells.push_back({tailStart, tailLength});
+            addSpan(spans, tailStart, tailLength, cellKind);
+            parseInline(text.mid(tailStart, tailLength), tailStart, spans, revealed, 0, &links);
+        }
     }
 }
 
@@ -134,14 +192,14 @@ ParseResult MarkdownRules::parseLine(const QString& text, int fenceState, bool r
     static const QRegularExpression reSingle(
         QStringLiteral(R"(^[ \t]{0,3}(```+|~~~+)(.*)\1[ \t]*$)"));
 
-    if (fenceState == 1) {
+    if (fenceState == StateFence) {
         if (isFence(text)) {
             result.kind = BlockKind::FenceClose;
-            result.nextFenceState = 0;
+            result.nextFenceState = StateNone;
             addSpan(result.spans, 0, text.size(), revealed ? SpanKind::Marker : SpanKind::HiddenMarker);
         } else {
             result.kind = BlockKind::FenceBody;
-            result.nextFenceState = 1;
+            result.nextFenceState = StateFence;
             result.fenceLine = 1;
             addSpan(result.spans, 0, text.size(), SpanKind::Code);
         }
@@ -150,7 +208,7 @@ ParseResult MarkdownRules::parseLine(const QString& text, int fenceState, bool r
 
     if (const auto m = reSingle.match(text); m.hasMatch()) {
         result.kind = BlockKind::FenceSingle;
-        result.nextFenceState = 0;
+        result.nextFenceState = StateNone;
         result.fenceLine = 1;
         const int ticks = m.capturedLength(1);
         const int openStart = m.capturedStart(1);
@@ -164,7 +222,7 @@ ParseResult MarkdownRules::parseLine(const QString& text, int fenceState, bool r
 
     if (isFence(text)) {
         result.kind = BlockKind::FenceOpen;
-        result.nextFenceState = 1;
+        result.nextFenceState = StateFence;
         result.fenceLang = fenceLanguage(text);
         addSpan(result.spans, 0, text.size(), revealed ? SpanKind::Marker : SpanKind::HiddenMarker);
         return result;
@@ -178,6 +236,13 @@ ParseResult MarkdownRules::parseLine(const QString& text, int fenceState, bool r
         QStringLiteral(R"(^( {0,3})(>+)([ \t]?)(.*)$)"));
     static const QRegularExpression reList(
         QStringLiteral(R"(^([ \t]*)(\*{1,6}|[+\-]|\d+[.)])([ \t]+)(?:(\[[ xX]\])([ \t]+))?(.*)$)"));
+    static const QRegularExpression reTableDelim(
+        QStringLiteral(R"(^ {0,3}\|(?:\s*:?-{1,}:?\s*\|)+\s*$)"));
+    static const QRegularExpression reTableRow(QStringLiteral(R"(^ {0,3}\|(.*)$)"));
+    static const QRegularExpression reTocOpen(
+        QStringLiteral(R"(^[ \t]*<!--[ \t]*toc[ \t]*-->[ \t]*$)"));
+    static const QRegularExpression reTocClose(
+        QStringLiteral(R"(^[ \t]*<!--[ \t]*/toc[ \t]*-->[ \t]*$)"));
 
     if (const auto m = reHeading.match(text); m.hasMatch()) {
         const int hashes = m.capturedLength(2);
@@ -188,7 +253,7 @@ ParseResult MarkdownRules::parseLine(const QString& text, int fenceState, bool r
         addSpan(result.spans, result.markerStart, result.markerLength,
                 revealed ? SpanKind::Marker : SpanKind::HiddenMarker, hashes);
         addSpan(result.spans, m.capturedStart(4), m.capturedLength(4), SpanKind::HeadingText, hashes);
-        parseInline(m.captured(4), m.capturedStart(4), result.spans, revealed, hashes);
+        parseInline(m.captured(4), m.capturedStart(4), result.spans, revealed, hashes, &result.links);
         return result;
     }
 
@@ -199,6 +264,34 @@ ParseResult MarkdownRules::parseLine(const QString& text, int fenceState, bool r
         return result;
     }
 
+    if (reTocOpen.match(text).hasMatch()) {
+        result.kind = BlockKind::TocOpen;
+        addSpan(result.spans, 0, text.size(), revealed ? SpanKind::Marker : SpanKind::HiddenMarker);
+        return result;
+    }
+
+    if (reTocClose.match(text).hasMatch()) {
+        result.kind = BlockKind::TocClose;
+        addSpan(result.spans, 0, text.size(), revealed ? SpanKind::Marker : SpanKind::HiddenMarker);
+        return result;
+    }
+
+    if (reTableDelim.match(text).hasMatch()) {
+        result.kind = BlockKind::TableDelimiter;
+        result.nextFenceState = StateTable;
+        addSpan(result.spans, 0, text.size(), revealed ? SpanKind::Marker : SpanKind::HiddenMarker);
+        return result;
+    }
+
+    if (reTableRow.match(text).hasMatch()) {
+        const bool isHeader = fenceState != StateTable;
+        result.kind = isHeader ? BlockKind::TableHeader : BlockKind::TableRow;
+        result.nextFenceState = StateTable;
+        parseTableRow(text, isHeader, revealed, result.spans, result.tableCells, result.tablePipes,
+                      result.links);
+        return result;
+    }
+
     if (const auto m = reQuote.match(text); m.hasMatch()) {
         result.kind = BlockKind::Quote;
         result.markerStart = m.capturedStart(2);
@@ -206,7 +299,7 @@ ParseResult MarkdownRules::parseLine(const QString& text, int fenceState, bool r
         addSpan(result.spans, result.markerStart, result.markerLength,
                 revealed ? SpanKind::Marker : SpanKind::HiddenMarker);
         addSpan(result.spans, m.capturedStart(4), m.capturedLength(4), SpanKind::Quote);
-        parseInline(m.captured(4), m.capturedStart(4), result.spans, revealed, 0);
+        parseInline(m.captured(4), m.capturedStart(4), result.spans, revealed, 0, &result.links);
         return result;
     }
 
@@ -239,7 +332,7 @@ ParseResult MarkdownRules::parseLine(const QString& text, int fenceState, bool r
                 addSpan(result.spans, m.capturedStart(5), m.capturedLength(5), SpanKind::HiddenMarker);
             }
         }
-        parseInline(m.captured(6), m.capturedStart(6), result.spans, revealed, 0);
+        parseInline(m.captured(6), m.capturedStart(6), result.spans, revealed, 0, &result.links);
         return result;
     }
 
@@ -252,6 +345,6 @@ ParseResult MarkdownRules::parseLine(const QString& text, int fenceState, bool r
         return result;
     }
 
-    parseInline(text, 0, result.spans, revealed, 0);
+    parseInline(text, 0, result.spans, revealed, 0, &result.links);
     return result;
 }

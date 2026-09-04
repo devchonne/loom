@@ -194,6 +194,130 @@ TEST(MarkdownRules, BlockImage) {
     EXPECT_NE(notOnly.kind, BlockKind::Image);
 }
 
+TEST(MarkdownRules, TableHeaderDelimiterAndRowKinds) {
+    const ParseResult header = MarkdownRules::parseLine(QStringLiteral("| A | B |"), StateNone, false);
+    EXPECT_EQ(header.kind, BlockKind::TableHeader);
+    EXPECT_EQ(header.nextFenceState, StateTable);
+    ASSERT_EQ(header.tableCells.size(), 2);
+
+    const ParseResult delim =
+        MarkdownRules::parseLine(QStringLiteral("| --- | --- |"), header.nextFenceState, false);
+    EXPECT_EQ(delim.kind, BlockKind::TableDelimiter);
+    EXPECT_EQ(delim.nextFenceState, StateTable);
+    ASSERT_FALSE(delim.spans.isEmpty());
+    EXPECT_EQ(delim.spans.front().kind, SpanKind::HiddenMarker);
+
+    const ParseResult row =
+        MarkdownRules::parseLine(QStringLiteral("| 1 | 2 |"), delim.nextFenceState, false);
+    EXPECT_EQ(row.kind, BlockKind::TableRow);
+    EXPECT_EQ(row.nextFenceState, StateTable);
+    ASSERT_EQ(row.tableCells.size(), 2);
+}
+
+TEST(MarkdownRules, TableCellSpansAndKinds) {
+    const ParseResult header = MarkdownRules::parseLine(QStringLiteral("| Name | Age |"), StateNone, false);
+    EXPECT_EQ(header.kind, BlockKind::TableHeader);
+    int pipes = 0;
+    int headerText = 0;
+    for (const Span& span : header.spans) {
+        if (span.kind == SpanKind::TablePipe) {
+            ++pipes;
+        }
+        if (span.kind == SpanKind::TableHeaderText) {
+            ++headerText;
+        }
+    }
+    EXPECT_EQ(pipes, 3);
+    EXPECT_EQ(headerText, 2);
+
+    const ParseResult row = MarkdownRules::parseLine(QStringLiteral("| a | b |"), StateTable, false);
+    EXPECT_EQ(row.kind, BlockKind::TableRow);
+    int cellText = 0;
+    for (const Span& span : row.spans) {
+        if (span.kind == SpanKind::TableCellText) {
+            ++cellText;
+        }
+    }
+    EXPECT_EQ(cellText, 2);
+}
+
+TEST(MarkdownRules, TableEscapedPipeDoesNotSplitCell) {
+    const ParseResult row =
+        MarkdownRules::parseLine(QStringLiteral("| a\\|b | c |"), StateNone, false);
+    EXPECT_EQ(row.kind, BlockKind::TableHeader);
+    ASSERT_EQ(row.tableCells.size(), 2);
+    const QString text = QStringLiteral("| a\\|b | c |");
+    EXPECT_EQ(text.mid(row.tableCells[0].first, row.tableCells[0].second).trimmed(),
+              QStringLiteral("a\\|b"));
+}
+
+TEST(MarkdownRules, PipeInsideFenceStaysFenceBody) {
+    const ParseResult body =
+        MarkdownRules::parseLine(QStringLiteral("| not | a | table |"), StateFence, false);
+    EXPECT_EQ(body.kind, BlockKind::FenceBody);
+    EXPECT_EQ(body.nextFenceState, StateFence);
+    ASSERT_FALSE(body.spans.isEmpty());
+    EXPECT_EQ(body.spans.front().kind, SpanKind::Code);
+}
+
+TEST(MarkdownRules, TableRunTerminatedByBlankLine) {
+    const ParseResult header = MarkdownRules::parseLine(QStringLiteral("| A | B |"), StateNone, false);
+    EXPECT_EQ(header.nextFenceState, StateTable);
+    const ParseResult delim =
+        MarkdownRules::parseLine(QStringLiteral("| --- | --- |"), header.nextFenceState, false);
+    EXPECT_EQ(delim.nextFenceState, StateTable);
+    const ParseResult blank = MarkdownRules::parseLine(QString(), delim.nextFenceState, false);
+    EXPECT_EQ(blank.nextFenceState, StateNone);
+    EXPECT_NE(blank.kind, BlockKind::TableRow);
+}
+
+TEST(MarkdownRules, LinkTargetsForAnchorsAndUrls) {
+    const ParseResult anchor = MarkdownRules::parseLine(QStringLiteral("see [a](#b)"), 0, false);
+    ASSERT_EQ(anchor.links.size(), 1);
+    EXPECT_EQ(anchor.links.front().target, QStringLiteral("#b"));
+    bool sawAnchorText = false;
+    for (const Span& span : anchor.spans) {
+        if (span.kind == SpanKind::AnchorLinkText) {
+            sawAnchorText = true;
+        }
+    }
+    EXPECT_TRUE(sawAnchorText);
+
+    const ParseResult url = MarkdownRules::parseLine(QStringLiteral("see [a](http://x)"), 0, false);
+    ASSERT_EQ(url.links.size(), 1);
+    EXPECT_EQ(url.links.front().target, QStringLiteral("http://x"));
+    bool sawLinkText = false;
+    for (const Span& span : url.spans) {
+        if (span.kind == SpanKind::LinkText) {
+            sawLinkText = true;
+        }
+    }
+    EXPECT_TRUE(sawLinkText);
+}
+
+TEST(MarkdownRules, TocMarkersHideWhenUnrevealed) {
+    const ParseResult openHidden =
+        MarkdownRules::parseLine(QStringLiteral("<!-- toc -->"), StateNone, false);
+    EXPECT_EQ(openHidden.kind, BlockKind::TocOpen);
+    ASSERT_FALSE(openHidden.spans.isEmpty());
+    EXPECT_EQ(openHidden.spans.front().kind, SpanKind::HiddenMarker);
+
+    const ParseResult openShown =
+        MarkdownRules::parseLine(QStringLiteral("<!-- toc -->"), StateNone, true);
+    EXPECT_EQ(openShown.kind, BlockKind::TocOpen);
+    EXPECT_EQ(openShown.spans.front().kind, SpanKind::Marker);
+
+    const ParseResult closeHidden =
+        MarkdownRules::parseLine(QStringLiteral("<!-- /toc -->"), StateNone, false);
+    EXPECT_EQ(closeHidden.kind, BlockKind::TocClose);
+    EXPECT_EQ(closeHidden.spans.front().kind, SpanKind::HiddenMarker);
+
+    const ParseResult closeShown =
+        MarkdownRules::parseLine(QStringLiteral("<!-- /toc -->"), StateNone, true);
+    EXPECT_EQ(closeShown.kind, BlockKind::TocClose);
+    EXPECT_EQ(closeShown.spans.front().kind, SpanKind::Marker);
+}
+
 TEST(CodeSyntax, PythonTokens) {
     EXPECT_EQ(CodeSyntax::normalizeLang(QStringLiteral("py")), QStringLiteral("python"));
     const QString line = QStringLiteral("def foo():  # hi");

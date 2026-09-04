@@ -148,6 +148,8 @@ void MarkdownHighlighter::highlightBlock(const QString& text) {
     data->markerStart = parsed.markerStart;
     data->listMarker = parsed.listMarker;
     data->listLevel = parsed.listLevel;
+    data->checkboxStart = parsed.checkboxStart;
+    data->checkboxChecked = parsed.checkboxChecked;
     data->revealed = revealed;
     data->fenceLine = parsed.fenceLine;
     data->fenceLang = parsed.fenceLang;

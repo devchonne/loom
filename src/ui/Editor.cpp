@@ -320,6 +320,11 @@ void Editor::syncListMargins() {
             if (const MarkdownBlockData* data = markdownData(block)) {
                 if (data->kind == BlockKind::List || data->kind == BlockKind::OrderedList) {
                     margin = data->revealed ? step : step * (data->listLevel + 1);
+                    if (!data->revealed && data->checkboxStart >= 0) {
+                        margin += step;
+                    }
+                } else if (data->kind == BlockKind::Checklist) {
+                    margin = data->revealed ? step : step * (data->listLevel + 1);
                 } else if (data->kind == BlockKind::FenceOpen || data->kind == BlockKind::FenceBody
                            || data->kind == BlockKind::FenceClose || data->kind == BlockKind::FenceSingle) {
                     margin = fenceLeft;
@@ -744,6 +749,12 @@ void Editor::keyPressEvent(QKeyEvent* event) {
 
 void Editor::mousePressEvent(QMouseEvent* event) {
     if (event->button() == Qt::LeftButton) {
+        if (const auto statePos = checkboxAt(event->pos())) {
+            clearMultiCarets();
+            toggleCheckboxAt(*statePos);
+            event->accept();
+            return;
+        }
         const QTextCursor hit = cursorForPosition(event->pos());
         if (const auto link = linkAt(hit.position())) {
             const bool ctrl = event->modifiers() & Qt::ControlModifier;
@@ -815,6 +826,11 @@ void Editor::mouseDoubleClickEvent(QMouseEvent* event) {
 }
 
 void Editor::mouseMoveEvent(QMouseEvent* event) {
+    if (checkboxAt(event->pos())) {
+        viewport()->setCursor(Qt::PointingHandCursor);
+        QTextEdit::mouseMoveEvent(event);
+        return;
+    }
     const QTextCursor hit = cursorForPosition(event->pos());
     if (const auto link = linkAt(hit.position())) {
         const bool ctrl = event->modifiers() & Qt::ControlModifier;
@@ -1278,8 +1294,12 @@ void Editor::drawMarkdownChrome(QPainter& painter) {
             cursor.setPosition(block.position() + qMax(0, data->markerStart));
             const QRect cr = cursorRect(cursor);
             const int step = 2 * charW;
+            // A checkbox reserves its own gutter slot right next to the text
+            // (see the checkbox block below); push the bullet one slot further
+            // left so the two decorations never overlap.
+            const int slotBack = (data->checkboxStart >= 0) ? step * 2 : step;
             const int size = qMax(8, qRound(charW * (data->listLevel == 0 ? 0.78 : 0.58)));
-            const int x = cr.x() - step + (step - size) / 2;
+            const int x = cr.x() - slotBack + (step - size) / 2;
             const int y = cr.y() + (cr.height() - size) / 2;
             const QRect dot(x, y, size, size);
             if (data->listLevel <= 0) {
@@ -1291,6 +1311,25 @@ void Editor::drawMarkdownChrome(QPainter& painter) {
             } else {
                 painter.fillRect(dot, theme_.darkForeground);
             }
+        }
+
+        if ((data->kind == BlockKind::List || data->kind == BlockKind::OrderedList
+             || data->kind == BlockKind::Checklist)
+            && data->checkboxStart >= 0 && !data->revealed) {
+            const QRect box = checkboxRect(block, *data, charW);
+            painter.setRenderHint(QPainter::Antialiasing, true);
+            painter.setPen(QPen(theme_.accent, qMax(2, box.width() / 8)));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawRoundedRect(box, 2, 2);
+            if (data->checkboxChecked) {
+                QPainterPath check;
+                check.moveTo(box.left() + box.width() * 0.20, box.top() + box.height() * 0.55);
+                check.lineTo(box.left() + box.width() * 0.42, box.top() + box.height() * 0.78);
+                check.lineTo(box.left() + box.width() * 0.82, box.top() + box.height() * 0.26);
+                painter.strokePath(check, QPen(theme_.accent, qMax(2, box.width() / 6), Qt::SolidLine,
+                                               Qt::RoundCap, Qt::RoundJoin));
+            }
+            painter.setRenderHint(QPainter::Antialiasing, false);
         }
 
         if (data->kind == BlockKind::Rule && !data->revealed) {
@@ -1519,6 +1558,87 @@ void Editor::removeImageLine() {
     c.removeSelectedText();
     c.endEditBlock();
     setTextCursor(c);
+}
+
+QRect Editor::checkboxRect(const QTextBlock& block, const MarkdownBlockData& data, int charW) const {
+    QTextCursor cursor(block);
+    cursor.setPosition(block.position() + qMax(0, data.checkboxStart));
+    const QRect cr = cursorRect(cursor);
+    const int step = 2 * charW;
+    const int size = qMax(10, qRound(charW * 1.1));
+    // Leave a visible gap between the box's right edge and the task text
+    // instead of centering it flush against the slot boundary.
+    const int gap = qMax(4, qRound(charW * 0.4));
+    const int x = qMax(cr.x() - step, cr.x() - gap - size);
+    const int y = cr.y() + (cr.height() - size) / 2;
+    return QRect(x, y, size, size);
+}
+
+std::optional<QPair<int, bool>> Editor::checkboxAt(const QPoint& pos) const {
+    if (!highlighter_ || !highlighter_->isEnabled()) {
+        return std::nullopt;
+    }
+    QTextDocument* doc = document();
+    if (!doc) {
+        return std::nullopt;
+    }
+    const QTextCursor hit = cursorForPosition(pos);
+    const QTextBlock block = hit.block();
+    if (!block.isValid()) {
+        return std::nullopt;
+    }
+    const MarkdownBlockData* data = markdownData(block);
+    if (!data || data->checkboxStart < 0 || data->revealed) {
+        return std::nullopt;
+    }
+    const bool isChecklist = data->kind == BlockKind::Checklist;
+    if (!isChecklist && data->kind != BlockKind::List && data->kind != BlockKind::OrderedList) {
+        return std::nullopt;
+    }
+    const int charW = qMax(6, fontMetrics().horizontalAdvance(QLatin1Char('M')));
+    const QRect box = checkboxRect(block, *data, charW);
+    if (!box.contains(pos)) {
+        return std::nullopt;
+    }
+    // Fixed-width (list-item) checkboxes always hold exactly one interior
+    // character (' ' or 'x'), so the state sits right after the single '['.
+    // Standalone bracket checkboxes are variable-width: `[]` has no interior
+    // character at all, `[x]` has one, so the state position is right after
+    // the *last* opening bracket (bracket depth == listLevel + 1).
+    const int openLen = isChecklist ? data->listLevel + 1 : 1;
+    return QPair<int, bool>(block.position() + data->checkboxStart + openLen, isChecklist);
+}
+
+void Editor::toggleCheckboxAt(QPair<int, bool> hit) {
+    QTextDocument* doc = document();
+    if (!doc) {
+        return;
+    }
+    const int statePos = hit.first;
+    const bool variableWidth = hit.second;
+    if (statePos < 0 || statePos >= qMax(0, doc->characterCount() - 1)) {
+        return;
+    }
+    QTextCursor cursor(doc);
+    cursor.setPosition(statePos);
+    cursor.setPosition(statePos + 1, QTextCursor::KeepAnchor);
+    const QString selected = cursor.selectedText();
+    const QChar current = selected.isEmpty() ? QChar() : selected.at(0);
+    const bool checked = (current == QLatin1Char('x') || current == QLatin1Char('X'));
+    cursor.beginEditBlock();
+    if (variableWidth) {
+        // `[]` <-> `[x]`: no placeholder character exists when unchecked, so
+        // checking inserts one and unchecking removes it instead of replacing.
+        if (checked) {
+            cursor.insertText(QString());
+        } else {
+            cursor.setPosition(statePos);
+            cursor.insertText(QStringLiteral("x"));
+        }
+    } else {
+        cursor.insertText(checked ? QStringLiteral(" ") : QStringLiteral("x"));
+    }
+    cursor.endEditBlock();
 }
 
 std::optional<LinkRef> Editor::linkAt(int documentPos) const {

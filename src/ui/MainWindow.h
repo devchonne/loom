@@ -10,6 +10,7 @@ class CheatSheet;
 class CrtWipe;
 class Editor;
 class FindBar;
+class OutlineOverlay;
 class StatusBar;
 class TabStrip;
 class TabSwitcher;
@@ -53,6 +54,9 @@ private:
     void find(bool reverse);
     void wrapSelection(const QString& left, const QString& right);
     void duplicateLine();
+    bool insertOrRefreshToc(const QString& arg);
+    void alignTableAtCursor();
+    bool insertTableSkeleton(const QString& arg);
     void renameTab();
     void toggleZen();
     void openSettings();
@@ -60,6 +64,7 @@ private:
     void cycleTheme(int delta);
     void layoutOverlays();
     bool dispatchSlash(const QString& name, const QString& arg);
+    void openOutline();
     int currentLine() const;
     int currentColumn() const;
     Editor* focusedEditor() const;
@@ -83,6 +88,7 @@ private:
     FindBar* findBar_ = nullptr;
     CheatSheet* cheat_ = nullptr;
     TabSwitcher* switcher_ = nullptr;
+    OutlineOverlay* outline_ = nullptr;
     ThemeSwitcher* themeSwitcher_ = nullptr;
     CrtWipe* wipe_ = nullptr;
     QTimer* autosave_ = nullptr;

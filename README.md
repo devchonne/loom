@@ -6,7 +6,7 @@ Markdown stays in the file as markdown. Headings, emphasis, code, and the rest a
 
 loom is built primarily for Hyprland on Arch, with live theme inheritance from [Omarchy](https://omarchy.org). The editor itself has no hard dependency on either — it runs as a normal Qt6 app anywhere those libraries are available — but the install instructions and desktop integration below assume that setup.
 
-## Features
+## Features1
 
 - Live markdown (format-only — the document is always raw text)
 - Multiple tabs, unnamed scratch buffers
@@ -14,8 +14,11 @@ loom is built primarily for Hyprland on Arch, with live theme inheritance from [
 - Omarchy theme inheritance, live
 - Zen mode: hides tabs and status bar for distraction-free writing
 - Ambient rain/storm weather with optional audio
-- Keyboard-first, with a `Ctrl+K` cheat sheet
+- Keyboard-first, with a searchable `Ctrl+K` cheat sheet (global search + per-section tabs)
 - Zoom with `Ctrl` + mouse wheel
+- Pipe tables that stay aligned as you type, with `Tab`/`Shift+Tab` cell navigation (`Ctrl+Shift+\` or `/table align` to reflow manually)
+- Table of contents generation (`/toc`) and a jump-to-heading outline overlay (`Ctrl+Shift+O`)
+- In-document anchor links: click (or `Ctrl+Enter`) to follow, `Alt+Left` to jump back. `Ctrl+click` also opens external URLs.
 
 <img width="1708" height="1362" alt="image" src="https://github.com/user-attachments/assets/a5a10553-2376-4c03-8d26-e949bb714722" />
 <img width="1707" height="1362" alt="image" src="https://github.com/user-attachments/assets/8278103b-4d27-42b6-b2a8-4e81a81d023a" />
@@ -103,7 +106,9 @@ update-desktop-database ~/.local/share/applications
 
 ## Shortcuts
 
-`Ctrl+K` inside the app lists everything. The important ones:
+`Ctrl+K` inside the app lists everything. Start typing to search every shortcut *and* slash command at once — matching happens across keys, descriptions and section names, and each tab shows how many hits it holds. `Tab` / `Shift+Tab` cycles the sections (`all`, `files`, `tabs`, `edit`, `tables`, `navigate`, `view`, `slash`), `Up`/`Down` walks the list, and `Esc` clears the query before it closes the overlay.
+
+The important ones:
 
 | Key | Action |
 | --- | --- |
@@ -111,14 +116,25 @@ update-desktop-database ~/.local/share/applications
 | `Ctrl+,` | settings |
 | `Ctrl+T` | theme picker |
 | `Ctrl+Shift+T` | next theme |
-| `Ctrl+K` | shortcut cheat sheet |
+| `Ctrl+K` | searchable shortcut cheat sheet |
 | `Ctrl+N` / `Ctrl+W` | new / close tab |
 | `Ctrl+Tab` | cycle tabs |
 | `Ctrl+Z` | undo |
 | `Ctrl+F` | find |
 | `Ctrl+M` | toggle markdown rendering |
 | `Ctrl+Shift+F` | zen mode |
+| `Ctrl+Shift+O` | outline overlay (jump to heading) |
+| `Ctrl+Shift+\` | align the table under the caret |
+| `Tab` / `Shift+Tab` (in a table) | move to the next / previous cell |
+| `Enter` (in a table) | insert a row (on a blank last row, leave the table) |
+| `Ctrl+Shift+Down` / `Up` | insert / delete table row |
+| `Ctrl+Shift+Right` / `Left` | insert / delete table column |
+| `Ctrl+Enter` | follow a heading link, or insert a line break inside a table cell |
+| click a heading link | jump to that heading |
+| `Alt+Left` | jump back after following a link |
 | `Ctrl` + wheel | zoom |
+
+Slash commands (type `/` at the start of a line): `/toc [depth]` inserts or refreshes a table of contents, `/toc list` and `/outline` open the outline overlay, `/table [NxM|align]` inserts a table skeleton or aligns the current one, `/table row|col` and `/table delrow|delcol` edit the table under the caret.
 
 <img width="1709" height="1364" alt="image" src="https://github.com/user-attachments/assets/02b6e0b6-f8d2-4bd6-85f7-6cf0629b7fd9" />
 

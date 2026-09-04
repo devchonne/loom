@@ -96,6 +96,10 @@ QTextCharFormat MarkdownHighlighter::formatFor(SpanKind kind, int headingLevel) 
         fmt.setForeground(theme_.blue);
         fmt.setFontUnderline(true);
         break;
+    case SpanKind::AnchorLinkText:
+        fmt.setForeground(theme_.magenta);
+        fmt.setFontUnderline(true);
+        break;
     case SpanKind::LinkUrl:
         fmt.setForeground(theme_.cyan);
         fmt.setFontPointSize(basePointSize_ * 0.85);
@@ -110,6 +114,17 @@ QTextCharFormat MarkdownHighlighter::formatFor(SpanKind kind, int headingLevel) 
     case SpanKind::Rule:
         fmt.setForeground(theme_.muted);
         break;
+    case SpanKind::TablePipe:
+        fmt.setForeground(QColor(0, 0, 0, 0));
+        fmt.setFontPointSize(basePointSize_);
+        break;
+    case SpanKind::TableHeaderText:
+        fmt.setFontWeight(QFont::DemiBold);
+        fmt.setForeground(theme_.brightForeground);
+        break;
+    case SpanKind::TableCellText:
+        fmt.setForeground(theme_.foreground);
+        break;
     }
     return fmt;
 }
@@ -122,7 +137,7 @@ void MarkdownHighlighter::highlightBlock(const QString& text) {
         return;
     }
 
-    const int prev = previousBlockState() == 1 ? 1 : 0;
+    const int prev = previousBlockState() >= 0 ? previousBlockState() : StateNone;
     const int blockNo = currentBlock().blockNumber();
     const bool revealed = (blockNo == revealedBlock_);
     const ParseResult parsed = MarkdownRules::parseLine(text, prev, revealed);
@@ -137,6 +152,9 @@ void MarkdownHighlighter::highlightBlock(const QString& text) {
     data->fenceLine = parsed.fenceLine;
     data->fenceLang = parsed.fenceLang;
     data->imagePath = parsed.imagePath;
+    data->links = parsed.links;
+    data->tableCells = parsed.tableCells;
+    data->tablePipes = parsed.tablePipes;
 
     if (parsed.kind == BlockKind::FenceBody) {
         const QTextBlock prevBlock = currentBlock().previous();

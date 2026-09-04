@@ -16,6 +16,8 @@ struct MarkdownBlockData : public QTextBlockUserData {
     int markerStart = 0;
     QChar listMarker;
     int listLevel = 0;
+    int checkboxStart = -1;
+    bool checkboxChecked = false;
     bool revealed = false;
     QString fenceLang;
     QString imagePath;

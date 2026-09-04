@@ -17,6 +17,7 @@ loom is built primarily for Hyprland on Arch, with live theme inheritance from [
 - Keyboard-first, with a searchable `Ctrl+K` cheat sheet (global search + per-section tabs)
 - Zoom with `Ctrl` + mouse wheel
 - Pipe tables that stay aligned as you type, with `Tab`/`Shift+Tab` cell navigation (`Ctrl+Shift+\` or `/table align` to reflow manually)
+- Checkboxes (`[]` / `[x]`, nest with `[[]]`, `[[[]]]`, ... like `*`/`**` indent) render as a clickable square with a checkmark — click to toggle
 - Table of contents generation (`/toc`) and a jump-to-heading outline overlay (`Ctrl+Shift+O`)
 - In-document anchor links: click (or `Ctrl+Enter`) to follow, `Alt+Left` to jump back. `Ctrl+click` also opens external URLs.
 

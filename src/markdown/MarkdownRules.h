@@ -37,6 +37,7 @@ enum class BlockKind : std::uint8_t {
     Heading,
     List,
     OrderedList,
+    Checklist,
     Quote,
     Rule,
     FenceOpen,
@@ -74,6 +75,8 @@ struct ParseResult {
     int markerLength = 0;
     int listLevel = 0;
     QChar listMarker;
+    int checkboxStart = -1;
+    bool checkboxChecked = false;
     QString fenceLang;
     QString imagePath;
     QVector<LinkRef> links;

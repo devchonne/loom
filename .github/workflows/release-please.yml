@@ -1,0 +1,23 @@
+name: release-please
+
+# Runs on every push to main. release-please parses Conventional Commit
+# messages since the last release and keeps a standing "chore: release
+# X.Y.Z" pull request up to date. Merging that PR is itself a push to
+# main, which is what triggers the actual tag + GitHub Release.
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

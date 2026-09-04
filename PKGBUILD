@@ -1,6 +1,6 @@
 # Maintainer: devchonne
 pkgname=loom
-pkgver=0.1.0
+pkgver=0.1.0 # x-release-please-version
 pkgrel=1
 pkgdesc="Minimal retro markdown scratchpad"
 arch=('x86_64')

@@ -1,0 +1,36 @@
+name: ci
+
+# Builds and tests every PR and every push to main, in an Arch Linux
+# container so dependency versions match what the README/PKGBUILD
+# document (Qt6, tomlplusplus, md4c) instead of drifting from
+# whatever ships on the ubuntu-latest runner.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install dependencies
+        run: |
+          pacman -Sy --noconfirm archlinux-keyring
+          pacman -Syu --noconfirm --needed \
+            git qt6-base qt6-multimedia qt6-wayland tomlplusplus md4c \
+            cmake ninja gtest
+
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build --output-on-failure

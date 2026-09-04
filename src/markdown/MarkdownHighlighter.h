@@ -7,6 +7,7 @@
 #include <QTextBlockUserData>
 #include <QTextCharFormat>
 #include <QTextBlock>
+#include <QPair>
 
 struct MarkdownBlockData : public QTextBlockUserData {
     BlockKind kind = BlockKind::Paragraph;
@@ -18,6 +19,9 @@ struct MarkdownBlockData : public QTextBlockUserData {
     bool revealed = false;
     QString fenceLang;
     QString imagePath;
+    QVector<LinkRef> links;
+    QVector<QPair<int, int>> tableCells;
+    QVector<int> tablePipes;
 };
 
 inline MarkdownBlockData* markdownData(const QTextBlock& block) {

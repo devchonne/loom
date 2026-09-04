@@ -1,5 +1,6 @@
 #pragma once
 
+#include "markdown/MarkdownRules.h"
 #include "theme/Theme.h"
 #include "ui/Weather.h"
 
@@ -12,6 +13,8 @@
 #include <QTextEdit>
 #include <QTimer>
 #include <QVector>
+
+#include <optional>
 
 class Buffer;
 class MarkdownHighlighter;
@@ -46,11 +49,26 @@ public:
     void setDiffHighlights(const QVector<QPair<int, QColor>>& tints);
     void undoEdit();
     void redoEdit();
+    bool insertTableRow();
+    bool deleteTableRow();
+    bool insertTableColumn();
+    bool deleteTableColumn();
+    void alignTableAtCursor();
+    bool focusTableCell(int blockNumber, int col);
+    // How far the caret should be pulled back into a table cell.
+    enum class CaretSnap {
+        Click,  // onto the cell's text (a click is a hit test)
+        Typing, // only inside the cell, so trailing spaces survive
+    };
+    // Test hook: exercises the caret clamping a mouse press performs, without
+    // needing a synthetic click at real screen coordinates.
+    void snapCaretForTest(CaretSnap mode = CaretSnap::Click) { snapCaretIntoTableCell(mode); }
 
 signals:
     void zoomChanged(int percent);
     void cursorInfoChanged();
     void slashCommand(const QString& name, const QString& arg, bool* accepted);
+    void linkActivated(const QString& target);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -58,6 +76,8 @@ protected:
     void wheelEvent(QWheelEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
     void hideEvent(QHideEvent* event) override;
     void showEvent(QShowEvent* event) override;
@@ -98,6 +118,18 @@ private:
     QSize imageDisplaySize(const QString& spec) const;
     bool isImageBlock(const QTextBlock& block) const;
     void removeImageLine();
+    std::optional<LinkRef> linkAt(int documentPos) const;
+    bool followLink(const LinkRef& link);
+    void jumpBack();
+    bool tableRunAtCursor(QTextBlock& start, QTextBlock& end, int& rowIndex) const;
+    bool replaceTableRun(const QTextBlock& start, const QTextBlock& end, const QStringList& rows,
+                         int caretRow, int caretCol, int caretCellLine = 0, int offsetInCellLine = 0);
+    void realignTableAtCursor();
+    void snapCaretIntoTableCell(CaretSnap mode);
+    bool moveToTableCell(int delta);
+    bool moveToTableRow(int delta);
+    bool insertCellLineBreak();
+    bool exitTableIfOnEmptyLastRow();
 
     MarkdownHighlighter* highlighter_ = nullptr;
     RevealController* reveal_ = nullptr;
@@ -117,4 +149,6 @@ private:
     int multiColumn_ = -1;
     QString resourceDir_;
     mutable QHash<QString, QPixmap> imageCache_;
+    QVector<int> jumpStack_;
+    bool aligningTable_ = false;
 };

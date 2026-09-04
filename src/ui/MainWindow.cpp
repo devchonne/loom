@@ -7,12 +7,15 @@
 #include "core/Paths.h"
 #include "core/SessionStore.h"
 #include "core/SlashCommand.h"
+#include "markdown/DocumentOutline.h"
+#include "markdown/TableFormat.h"
 #include "theme/Fonts.h"
 #include "theme/ThemeManager.h"
 #include "ui/CheatSheet.h"
 #include "ui/CrtWipe.h"
 #include "ui/Editor.h"
 #include "ui/FindBar.h"
+#include "ui/OutlineOverlay.h"
 #include "ui/SettingsDialog.h"
 #include "ui/StatusBar.h"
 #include "ui/TabStrip.h"
@@ -30,6 +33,7 @@
 #include <QInputDialog>
 #include <QKeySequence>
 #include <QPair>
+#include <QRegularExpression>
 #include <QScrollBar>
 #include <QShortcut>
 #include <QShowEvent>
@@ -52,6 +56,7 @@ MainWindow::MainWindow(BufferManager* buffers, ThemeManager* themes, Settings se
     , findBar_(new FindBar(this))
     , cheat_(new CheatSheet(this))
     , switcher_(new TabSwitcher(buffers_, this))
+    , outline_(new OutlineOverlay(this))
     , themeSwitcher_(new ThemeSwitcher(this))
     , wipe_(new CrtWipe(this))
     , autosave_(new QTimer(this))
@@ -81,6 +86,7 @@ MainWindow::MainWindow(BufferManager* buffers, ThemeManager* themes, Settings se
 
     cheat_->setParent(root);
     switcher_->setParent(root);
+    outline_->setParent(root);
     themeSwitcher_->setParent(root);
     wipe_->setParent(root);
 
@@ -123,6 +129,22 @@ MainWindow::MainWindow(BufferManager* buffers, ThemeManager* themes, Settings se
     connect(findBar_, &FindBar::findPrev, this, [this]() { find(true); });
     connect(findBar_, &FindBar::closed, this, [this]() { focusedEditor()->setFocus(); });
     connect(switcher_, &TabSwitcher::chosen, this, &MainWindow::onTabClicked);
+    connect(cheat_, &CheatSheet::closed, this, [this]() { focusedEditor()->setFocus(); });
+    connect(outline_, &OutlineOverlay::chosen, this, [this](int blockNumber) {
+        Editor* editor = focusedEditor();
+        QTextDocument* doc = editor->document();
+        if (!doc) {
+            return;
+        }
+        const QTextBlock block = doc->findBlockByNumber(blockNumber);
+        if (!block.isValid()) {
+            return;
+        }
+        QTextCursor cursor(block);
+        editor->setTextCursor(cursor);
+        editor->ensureCursorVisible();
+        editor->setFocus();
+    });
     connect(themeSwitcher_, &ThemeSwitcher::chosen, this, &MainWindow::setThemeId);
     connect(editor_, &Editor::slashCommand, this,
             [this](const QString& name, const QString& arg, bool* accepted) {
@@ -209,6 +231,7 @@ void MainWindow::wireShortcuts() {
     add(QKeySequence(QStringLiteral("Ctrl+L")), [this]() {
         wrapSelection(QStringLiteral("["), QStringLiteral("](url)"));
     });
+    add(QKeySequence(QStringLiteral("Ctrl+Shift+\\")), [this]() { alignTableAtCursor(); });
     add(QKeySequence(QStringLiteral("Ctrl+=")), [this]() { editor_->zoomBy(10); });
     add(QKeySequence(QStringLiteral("Ctrl++")), [this]() { editor_->zoomBy(10); });
     add(QKeySequence(QStringLiteral("Ctrl+-")), [this]() { editor_->zoomBy(-10); });
@@ -250,12 +273,15 @@ void MainWindow::wireShortcuts() {
         switcher_->setGeometry(centralWidget()->rect());
         switcher_->open();
     });
+    add(QKeySequence(QStringLiteral("Ctrl+Shift+O")), [this]() { openOutline(); });
     add(QKeySequence(QStringLiteral("Ctrl+Q")), [this]() { close(); });
     add(QKeySequence(Qt::Key_Escape), [this]() {
         if (cheat_->isVisible()) {
-            cheat_->hide();
+            cheat_->dismiss();
         } else if (switcher_->isVisible()) {
             switcher_->hide();
+        } else if (outline_->isVisible()) {
+            outline_->hide();
         } else if (themeSwitcher_->isVisible()) {
             themeSwitcher_->hide();
         } else if (findBar_->isVisible()) {
@@ -383,6 +409,7 @@ void MainWindow::applyTheme() {
     findBar_->setTheme(theme);
     cheat_->setTheme(theme);
     switcher_->setTheme(theme);
+    outline_->setTheme(theme);
     themeSwitcher_->setTheme(theme);
     wipe_->setTheme(theme);
     if (comparing_) {
@@ -399,6 +426,7 @@ void MainWindow::applySettings(const Settings& settings) {
     findBar_->setChromeFont(chrome);
     cheat_->setChromeFont(chrome);
     switcher_->setChromeFont(chrome);
+    outline_->setChromeFont(chrome);
     themeSwitcher_->setChromeFont(chrome);
     editor_->applySettings(settings_);
     editorRight_->applySettings(settings_);
@@ -498,6 +526,103 @@ void MainWindow::duplicateLine() {
     cursor.clearSelection();
     cursor.movePosition(QTextCursor::EndOfBlock);
     cursor.insertText(QLatin1Char('\n') + line);
+}
+
+void MainWindow::openOutline() {
+    Editor* editor = focusedEditor();
+    QTextDocument* doc = editor->document();
+    if (!doc) {
+        return;
+    }
+    const auto entries = DocumentOutline::build(doc->toPlainText().split(QLatin1Char('\n')));
+    outline_->setGeometry(centralWidget()->rect());
+    outline_->open(entries);
+}
+
+bool MainWindow::insertOrRefreshToc(const QString& arg) {
+    Editor* editor = focusedEditor();
+    QTextDocument* doc = editor->document();
+    if (!doc) {
+        return false;
+    }
+
+    int maxLevel = 6;
+    if (!arg.isEmpty()) {
+        bool ok = false;
+        const int level = arg.toInt(&ok);
+        if (!ok || level < 1 || level > 6) {
+            return false;
+        }
+        maxLevel = level;
+    }
+
+    const QString fullText = doc->toPlainText();
+    const auto entries = DocumentOutline::build(fullText.split(QLatin1Char('\n')));
+    const QString body = DocumentOutline::tocMarkdown(entries, maxLevel);
+
+    static const QString openMarker = QStringLiteral("<!-- toc -->");
+    static const QString closeMarker = QStringLiteral("<!-- /toc -->");
+    const int openIdx = fullText.indexOf(openMarker);
+    const int closeIdx = openIdx >= 0 ? fullText.indexOf(closeMarker, openIdx + openMarker.size()) : -1;
+
+    QTextCursor cursor(doc);
+    cursor.beginEditBlock();
+    if (openIdx >= 0 && closeIdx > openIdx) {
+        cursor.setPosition(openIdx + openMarker.size());
+        cursor.setPosition(closeIdx, QTextCursor::KeepAnchor);
+        cursor.removeSelectedText();
+        cursor.insertText(QLatin1Char('\n') + body + QLatin1Char('\n'));
+    } else {
+        cursor = editor->textCursor();
+        if (cursor.positionInBlock() > 0 || !cursor.block().text().isEmpty()) {
+            cursor.movePosition(QTextCursor::EndOfBlock);
+            cursor.insertBlock();
+        }
+        cursor.insertText(openMarker + QLatin1Char('\n') + body + QLatin1Char('\n') + closeMarker);
+        cursor.insertBlock();
+    }
+    cursor.endEditBlock();
+    editor->setTextCursor(cursor);
+    return true;
+}
+
+void MainWindow::alignTableAtCursor() {
+    // Delegates to the editor so run detection, alignment and caret restoration
+    // all use one implementation instead of a divergent copy.
+    focusedEditor()->alignTableAtCursor();
+}
+
+bool MainWindow::insertTableSkeleton(const QString& arg) {
+    int cols = 3;
+    int rows = 2;
+    static const QRegularExpression reSize(QStringLiteral(R"(^(\d+)x(\d+)$)"), QRegularExpression::CaseInsensitiveOption);
+    const QString trimmed = arg.trimmed();
+    if (!trimmed.isEmpty()) {
+        const auto m = reSize.match(trimmed);
+        if (!m.hasMatch()) {
+            return false;
+        }
+        cols = qBound(1, m.captured(1).toInt(), 32);
+        rows = qBound(0, m.captured(2).toInt(), 200);
+    }
+
+    Editor* editor = focusedEditor();
+    QTextCursor cursor = editor->textCursor();
+    cursor.beginEditBlock();
+    if (cursor.positionInBlock() > 0 || !cursor.block().text().isEmpty()) {
+        cursor.movePosition(QTextCursor::EndOfBlock);
+        cursor.insertBlock();
+    }
+    const int headerBlock = cursor.blockNumber();
+    cursor.insertText(TableFormat::skeleton(cols, rows));
+    // Trailing block so there is somewhere to continue writing below the table.
+    cursor.insertBlock();
+    cursor.endEditBlock();
+    // Leave the caret in the first header cell, ready to type.
+    if (!editor->focusTableCell(headerBlock, 0)) {
+        editor->setTextCursor(cursor);
+    }
+    return true;
 }
 
 void MainWindow::renameTab() {
@@ -842,6 +967,38 @@ bool MainWindow::dispatchSlash(const QString& name, const QString& arg) {
             return false;
         }
     }
+    if (name == QLatin1String("toc")) {
+        if (arg.trimmed().compare(QLatin1String("list"), Qt::CaseInsensitive) == 0) {
+            openOutline();
+            return true;
+        }
+        return insertOrRefreshToc(arg);
+    }
+    if (name == QLatin1String("outline")) {
+        openOutline();
+        return true;
+    }
+    if (name == QLatin1String("table")) {
+        const QString trimmed = arg.trimmed();
+        if (trimmed.compare(QLatin1String("align"), Qt::CaseInsensitive) == 0) {
+            alignTableAtCursor();
+            return true;
+        }
+        if (trimmed.compare(QLatin1String("row"), Qt::CaseInsensitive) == 0) {
+            return focusedEditor()->insertTableRow();
+        }
+        if (trimmed.compare(QLatin1String("col"), Qt::CaseInsensitive) == 0
+            || trimmed.compare(QLatin1String("column"), Qt::CaseInsensitive) == 0) {
+            return focusedEditor()->insertTableColumn();
+        }
+        if (trimmed.compare(QLatin1String("delrow"), Qt::CaseInsensitive) == 0) {
+            return focusedEditor()->deleteTableRow();
+        }
+        if (trimmed.compare(QLatin1String("delcol"), Qt::CaseInsensitive) == 0) {
+            return focusedEditor()->deleteTableColumn();
+        }
+        return insertTableSkeleton(trimmed);
+    }
     if (name == QLatin1String("theme")) {
         if (arg.isEmpty()) {
             themeSwitcher_->setGeometry(centralWidget()->rect());
@@ -954,6 +1111,7 @@ void MainWindow::layoutOverlays() {
         const QRect r = root->rect();
         cheat_->setGeometry(r);
         switcher_->setGeometry(r);
+        outline_->setGeometry(r);
         themeSwitcher_->setGeometry(r);
         wipe_->setGeometry(r);
     }

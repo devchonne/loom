@@ -1,8 +1,25 @@
 #include "core/Buffer.h"
 
+#include "markdown/TableFormat.h"
+
+#include <QStringList>
+#include <QTextBlock>
+
 namespace {
 
 constexpr int kMaxHistory = 2000;
+
+// QTextDocument::toPlainText() rewrites QChar::LineSeparator (U+2028) as a real
+// newline, which would turn an intra-cell line break into a separate line and
+// split the table row. Walking the blocks keeps the separator intact so
+// TableFormat::toMarkdown can encode it as "<br>".
+QString documentPlainText(const QTextDocument* doc) {
+    QStringList lines;
+    for (QTextBlock b = doc->begin(); b.isValid(); b = b.next()) {
+        lines.append(b.text());
+    }
+    return lines.join(QLatin1Char('\n'));
+}
 
 } // namespace
 
@@ -28,7 +45,7 @@ Buffer::Buffer(const QString& id, QObject* parent)
 }
 
 QString Buffer::text() const {
-    return document_->toPlainText();
+    return TableFormat::toMarkdown(documentPlainText(document_));
 }
 
 void Buffer::setTitle(const QString& title) {
@@ -53,7 +70,7 @@ void Buffer::setScroll(int value) {
 
 void Buffer::setText(const QString& text, bool markClean) {
     restoring_ = true;
-    document_->setPlainText(text);
+    document_->setPlainText(TableFormat::toDisplay(text));
     restoring_ = false;
     resetHistory();
     if (markClean) {
@@ -132,7 +149,7 @@ bool Buffer::redo() {
 void Buffer::applyHistory() {
     const HistEntry& entry = history_[historyIndex_];
     restoring_ = true;
-    document_->setPlainText(entry.text);
+    document_->setPlainText(TableFormat::toDisplay(entry.text));
     cursor_ = qBound(0, entry.cursor, qMax(0, document_->characterCount() - 1));
     restoring_ = false;
     markDirty();

@@ -236,6 +236,8 @@ ParseResult MarkdownRules::parseLine(const QString& text, int fenceState, bool r
         QStringLiteral(R"(^( {0,3})(>+)([ \t]?)(.*)$)"));
     static const QRegularExpression reList(
         QStringLiteral(R"(^([ \t]*)(\*{1,6}|[+\-]|\d+[.)])([ \t]+)(?:(\[[ xX]\])([ \t]+))?(.*)$)"));
+    static const QRegularExpression reChecklist(
+        QStringLiteral(R"(^([ \t]*)(\[{1,6})([xX]?)(\]{1,6})([ \t]+)(.*)$)"));
     static const QRegularExpression reTableDelim(
         QStringLiteral(R"(^ {0,3}\|(?:\s*:?-{1,}:?\s*\|)+\s*$)"));
     static const QRegularExpression reTableRow(QStringLiteral(R"(^ {0,3}\|(.*)$)"));
@@ -327,10 +329,34 @@ ParseResult MarkdownRules::parseLine(const QString& text, int fenceState, bool r
         addSpan(result.spans, m.capturedStart(2),
                 m.capturedLength(2) + m.capturedLength(3), markerKind);
         if (m.capturedStart(4) >= 0 && m.capturedLength(4) > 0) {
-            addSpan(result.spans, m.capturedStart(4), m.capturedLength(4), SpanKind::Checkbox);
+            result.checkboxStart = m.capturedStart(4);
+            const QString boxText = m.captured(4);
+            const QChar state = boxText.size() > 1 ? boxText.at(1) : QLatin1Char(' ');
+            result.checkboxChecked = (state == QLatin1Char('x') || state == QLatin1Char('X'));
+            addSpan(result.spans, m.capturedStart(4), m.capturedLength(4),
+                    revealed ? SpanKind::Checkbox : SpanKind::HiddenMarker);
             if (!revealed && m.capturedLength(5) > 0) {
                 addSpan(result.spans, m.capturedStart(5), m.capturedLength(5), SpanKind::HiddenMarker);
             }
+        }
+        parseInline(m.captured(6), m.capturedStart(6), result.spans, revealed, 0, &result.links);
+        return result;
+    }
+
+    if (const auto m = reChecklist.match(text); m.hasMatch() && m.capturedLength(2) == m.capturedLength(4)) {
+        result.kind = BlockKind::Checklist;
+        result.listLevel = m.capturedLength(2) - 1;
+        result.markerStart = m.capturedStart(2);
+        result.markerLength = m.capturedLength(2) + m.capturedLength(3) + m.capturedLength(4);
+        result.checkboxStart = m.capturedStart(2);
+        result.checkboxChecked = !m.captured(3).isEmpty();
+        if (!revealed && m.capturedLength(1) > 0) {
+            addSpan(result.spans, m.capturedStart(1), m.capturedLength(1), SpanKind::HiddenMarker);
+        }
+        addSpan(result.spans, result.markerStart, result.markerLength,
+                revealed ? SpanKind::Checkbox : SpanKind::HiddenMarker);
+        if (!revealed && m.capturedLength(5) > 0) {
+            addSpan(result.spans, m.capturedStart(5), m.capturedLength(5), SpanKind::HiddenMarker);
         }
         parseInline(m.captured(6), m.capturedStart(6), result.spans, revealed, 0, &result.links);
         return result;

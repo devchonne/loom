@@ -102,6 +102,8 @@ TEST(MarkdownRules, SameLineFence) {
 TEST(MarkdownRules, ListAndLink) {
     const ParseResult list = MarkdownRules::parseLine(QStringLiteral("- [x] task"), 0, true);
     EXPECT_EQ(list.kind, BlockKind::List);
+    EXPECT_GE(list.checkboxStart, 0);
+    EXPECT_TRUE(list.checkboxChecked);
     bool checkbox = false;
     for (const Span& span : list.spans) {
         if (span.kind == SpanKind::Checkbox) {
@@ -123,6 +125,83 @@ TEST(MarkdownRules, ListAndLink) {
     }
     EXPECT_TRUE(text);
     EXPECT_TRUE(url);
+}
+
+TEST(MarkdownRules, CheckboxRevealedVsHidden) {
+    const ParseResult hidden = MarkdownRules::parseLine(QStringLiteral("- [ ] task"), 0, false);
+    EXPECT_EQ(hidden.kind, BlockKind::List);
+    EXPECT_GE(hidden.checkboxStart, 0);
+    EXPECT_FALSE(hidden.checkboxChecked);
+    bool hiddenSpanFound = false;
+    bool visibleCheckboxSpanFound = false;
+    for (const Span& span : hidden.spans) {
+        if (span.start == hidden.checkboxStart) {
+            if (span.kind == SpanKind::HiddenMarker) {
+                hiddenSpanFound = true;
+            } else if (span.kind == SpanKind::Checkbox) {
+                visibleCheckboxSpanFound = true;
+            }
+        }
+    }
+    EXPECT_TRUE(hiddenSpanFound);
+    EXPECT_FALSE(visibleCheckboxSpanFound);
+
+    const ParseResult revealed = MarkdownRules::parseLine(QStringLiteral("- [X] task"), 0, true);
+    EXPECT_EQ(revealed.kind, BlockKind::List);
+    EXPECT_GE(revealed.checkboxStart, 0);
+    EXPECT_TRUE(revealed.checkboxChecked);
+    bool checkboxSpanFound = false;
+    for (const Span& span : revealed.spans) {
+        if (span.start == revealed.checkboxStart && span.kind == SpanKind::Checkbox) {
+            checkboxSpanFound = true;
+        }
+    }
+    EXPECT_TRUE(checkboxSpanFound);
+}
+
+TEST(MarkdownRules, StandaloneChecklistBracketDepth) {
+    const ParseResult top = MarkdownRules::parseLine(QStringLiteral("[] Wash dishes"), 0, false);
+    EXPECT_EQ(top.kind, BlockKind::Checklist);
+    EXPECT_EQ(top.listLevel, 0);
+    EXPECT_FALSE(top.checkboxChecked);
+
+    const ParseResult topChecked = MarkdownRules::parseLine(QStringLiteral("[x] Wash dishes"), 0, false);
+    EXPECT_EQ(topChecked.kind, BlockKind::Checklist);
+    EXPECT_EQ(topChecked.listLevel, 0);
+    EXPECT_TRUE(topChecked.checkboxChecked);
+
+    const ParseResult nested = MarkdownRules::parseLine(QStringLiteral("[[]] Sub task"), 0, false);
+    EXPECT_EQ(nested.kind, BlockKind::Checklist);
+    EXPECT_EQ(nested.listLevel, 1);
+    EXPECT_FALSE(nested.checkboxChecked);
+
+    const ParseResult nestedChecked = MarkdownRules::parseLine(QStringLiteral("[[x]] Sub task"), 0, false);
+    EXPECT_EQ(nestedChecked.kind, BlockKind::Checklist);
+    EXPECT_EQ(nestedChecked.listLevel, 1);
+    EXPECT_TRUE(nestedChecked.checkboxChecked);
+
+    // Mismatched bracket depth (open/close counts differ) is not a checklist.
+    const ParseResult mismatched = MarkdownRules::parseLine(QStringLiteral("[[] Sub task"), 0, false);
+    EXPECT_NE(mismatched.kind, BlockKind::Checklist);
+
+    // Hidden (unrevealed) checklist marker collapses to a single hidden span;
+    // revealed keeps it visible as SpanKind::Checkbox.
+    bool hiddenSpanFound = false;
+    for (const Span& span : nested.spans) {
+        if (span.start == nested.checkboxStart && span.kind == SpanKind::HiddenMarker) {
+            hiddenSpanFound = true;
+        }
+    }
+    EXPECT_TRUE(hiddenSpanFound);
+
+    const ParseResult revealedNested = MarkdownRules::parseLine(QStringLiteral("[[]] Sub task"), 0, true);
+    bool checkboxSpanFound = false;
+    for (const Span& span : revealedNested.spans) {
+        if (span.start == revealedNested.checkboxStart && span.kind == SpanKind::Checkbox) {
+            checkboxSpanFound = true;
+        }
+    }
+    EXPECT_TRUE(checkboxSpanFound);
 }
 
 TEST(MarkdownRules, UnorderedAndOrderedLists) {

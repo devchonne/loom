@@ -21,6 +21,7 @@ class MarkdownHighlighter;
 class RevealController;
 class QKeyEvent;
 class QMimeData;
+struct MarkdownBlockData;
 struct Settings;
 
 class Editor : public QTextEdit {
@@ -120,6 +121,9 @@ private:
     void removeImageLine();
     std::optional<LinkRef> linkAt(int documentPos) const;
     bool followLink(const LinkRef& link);
+    QRect checkboxRect(const QTextBlock& block, const MarkdownBlockData& data, int charW) const;
+    std::optional<QPair<int, bool>> checkboxAt(const QPoint& pos) const;
+    void toggleCheckboxAt(QPair<int, bool> hit);
     void jumpBack();
     bool tableRunAtCursor(QTextBlock& start, QTextBlock& end, int& rowIndex) const;
     bool replaceTableRun(const QTextBlock& start, const QTextBlock& end, const QStringList& rows,

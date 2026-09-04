@@ -4,7 +4,7 @@ A minimal retro markdown scratchpad for Linux. Dark chrome, a CRT scanline glow,
 
 Markdown stays in the file as markdown. Headings, emphasis, code, and the rest are formatted in place; markers such as `#` hide when the caret leaves the line and come back when you edit it. There's no rendering step and no preview pane — what you see is the raw file, just dressed up while you're not touching it.
 
-loom is built primarily for Hyprland on Arch, with live theme inheritance from [Omarchy](https://omarchy.org). The editor itself has no hard dependency on either — it runs as a normal Qt6 app anywhere those libraries are available — but the install instructions and desktop integration below assume that setup.
+loom is built primarily for Hyprland on Arch, with live theme inheritance from [Omarchy](https://omarchy.org). The editor itself has no hard dependency on either — it runs as a normal Q6 app anywhere those libraries are available — but the install instructions and desktop integration below assume that setup.
 
 ## Features1
 
@@ -90,6 +90,16 @@ Search Walker for `loom`, `markdown`, or `scratchpad`. Open Walker again if an a
 1. Develop and test with `./build/loom`.
 2. When you want Walker to launch that version, run the install block above (`cmake --build` / `cmake --install`).
 3. Optional: bump `project(loom VERSION …)` in `CMakeLists.txt` and `setApplicationVersion` in `src/app/Application.cpp`.
+
+### Releases (GitHub)
+
+Every push builds and runs the test suite (`.github/workflows/ci.yml`). Versioning on `main` is automated with [release-please](https://github.com/googleapis/release-please) (`.github/workflows/release-please.yml`):
+
+1. Write commits against `main` (directly or via PR) using [Conventional Commits](https://www.conventionalcommits.org/) — `feat:` and `fix:` prefixes drive the version bump, `feat!:`/`BREAKING CHANGE:` bump major.
+2. release-please keeps a standing `chore: release X.Y.Z` pull request up to date with a generated `CHANGELOG.md` entry and version bumps in `CMakeLists.txt`, `src/app/Application.cpp`, and `PKGBUILD`.
+3. Merging that PR tags the commit (`vX.Y.Z`) and publishes a GitHub Release with the changelog notes.
+
+Config lives in `release-please-config.json` and `.release-please-manifest.json` at the repo root.
 
 To uninstall the Walker entry and binary:
 

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(loom VERSION 0.1.0 LANGUAGES CXX)
+project(loom VERSION 0.1.0 LANGUAGES CXX) # x-release-please-version
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

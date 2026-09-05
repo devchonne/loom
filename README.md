@@ -19,6 +19,7 @@ loom is built primarily for Hyprland on Arch, with live theme inheritance from [
 - Pipe tables that stay aligned as you type, with `Tab`/`Shift+Tab` cell navigation (`Ctrl+Shift+\` or `/table align` to reflow manually)
 - Checkboxes (`[]` / `[x]`, nest with `[[]]`, `[[[]]]`, ... like `*`/`**` indent) render as a clickable square with a checkmark — click to toggle
 - Table of contents generation (`/toc`) and a jump-to-heading outline overlay (`Ctrl+Shift+O`)
+- PDF export with selectable templates, behind `Ctrl+Shift+P` (no UI chrome)
 - In-document anchor links: click (or `Ctrl+Enter`) to follow, `Alt+Left` to jump back. `Ctrl+click` also opens external URLs.
 
 <img width="1708" height="1362" alt="image" src="https://github.com/user-attachments/assets/a5a10553-2376-4c03-8d26-e949bb714722" />
@@ -124,6 +125,7 @@ The important ones:
 | Key | Action |
 | --- | --- |
 | `Ctrl+S` / `Ctrl+Shift+S` | save / save as |
+| `Ctrl+Shift+P` | export pdf (template picker) |
 | `Ctrl+,` | settings |
 | `Ctrl+T` | theme picker |
 | `Ctrl+Shift+T` | next theme |
@@ -145,7 +147,21 @@ The important ones:
 | `Alt+Left` | jump back after following a link |
 | `Ctrl` + wheel | zoom |
 
-Slash commands (type `/` at the start of a line): `/toc [depth]` inserts or refreshes a table of contents, `/toc list` and `/outline` open the outline overlay, `/table [NxM|align]` inserts a table skeleton or aligns the current one, `/table row|col` and `/table delrow|delcol` edit the table under the caret.
+Slash commands (type `/` at the start of a line): `/toc [depth]` inserts or refreshes a table of contents, `/toc list` and `/outline` open the outline overlay, `/table [NxM|align]` inserts a table skeleton or aligns the current one, `/table row|col` and `/table delrow|delcol` edit the table under the caret, `/pdf [template]` exports a PDF.
+
+### PDF export
+
+`Ctrl+Shift+P` (or `/pdf`) opens a template picker and writes the current tab to a PDF. There is no button for it — markdown stays the point of the app, and export is meant to stay out of the way until you want it. `/pdf <template>` skips the picker. loom remembers the last template you used.
+
+| Template | Look |
+| --- | --- |
+| `paper` | white A4, print-first margins, page footer (default) |
+| `terminal` | dark page in the live loom theme, accent headings |
+| `manuscript` | 12pt, double spaced, 25mm margins, for edits |
+| `compact` | 9pt, tight margins, no footer, for reference sheets |
+| `plain` | no styling at all, raw markdown html |
+
+Checkboxes export as `[ ]` / `[x]` with no bullet in front, `*`/`**`/`***` nesting becomes real nested lists, `<!-- toc -->` markers are dropped while the generated list is kept, and images resolve the same way the editor resolves them (absolute, then next to the file, then `~/.local/state/loom/media/`), scaled down to the text column when they are wider than the page.
 
 <img width="1709" height="1364" alt="image" src="https://github.com/user-attachments/assets/02b6e0b6-f8d2-4bd6-85f7-6cf0629b7fd9" />
 

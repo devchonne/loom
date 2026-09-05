@@ -7,6 +7,9 @@ int main(int argc, char** argv) {
     if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) {
         qputenv("QT_QPA_PLATFORM", "offscreen");
     }
+    // The gtk3 platform theme plugin aborts when it cannot open a display, so a
+    // desktop session's QT_QPA_PLATFORMTHEME would break a headless ctest run.
+    qputenv("QT_QPA_PLATFORMTHEME", "");
     QApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("loom"));
     QCoreApplication::setOrganizationName(QStringLiteral("loom"));

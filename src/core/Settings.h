@@ -16,6 +16,9 @@ struct Settings {
     bool crtWipe = true;
     bool keyclick = false;
     QString notesDirectory;
+    // Last template used by the hidden pdf export (Ctrl+Shift+P). Intentionally
+    // absent from the settings dialog.
+    QString pdfTemplate = QStringLiteral("paper");
 
     static Settings load();
     bool save(QString* error = nullptr) const;

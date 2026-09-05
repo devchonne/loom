@@ -11,6 +11,7 @@ class CrtWipe;
 class Editor;
 class FindBar;
 class OutlineOverlay;
+class PdfExportOverlay;
 class StatusBar;
 class TabStrip;
 class TabSwitcher;
@@ -51,6 +52,8 @@ private:
     void applySettings(const Settings& settings);
     void saveCurrent(bool saveAs);
     void openFile();
+    void openPdfExport();
+    bool exportPdf(const QString& templateId);
     void find(bool reverse);
     void wrapSelection(const QString& left, const QString& right);
     void duplicateLine();
@@ -90,6 +93,7 @@ private:
     TabSwitcher* switcher_ = nullptr;
     OutlineOverlay* outline_ = nullptr;
     ThemeSwitcher* themeSwitcher_ = nullptr;
+    PdfExportOverlay* pdfExport_ = nullptr;
     CrtWipe* wipe_ = nullptr;
     QTimer* autosave_ = nullptr;
     QTimer* compareDiffTimer_ = nullptr;

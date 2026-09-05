@@ -44,6 +44,8 @@ Settings Settings::load() {
         s.keyclick = tbl["keyclick"].value_or(s.keyclick);
         s.notesDirectory =
             QString::fromStdString(tbl["notes_directory"].value_or(s.notesDirectory.toStdString()));
+        s.pdfTemplate =
+            QString::fromStdString(tbl["pdf_template"].value_or(s.pdfTemplate.toStdString()));
     } catch (const toml::parse_error&) {
         return s;
     }
@@ -65,6 +67,7 @@ bool Settings::save(QString* error) const {
     tbl.insert("crt_wipe", crtWipe);
     tbl.insert("keyclick", keyclick);
     tbl.insert("notes_directory", notesDirectory.toStdString());
+    tbl.insert("pdf_template", pdfTemplate.toStdString());
 
     std::ostringstream ss;
     ss << tbl;

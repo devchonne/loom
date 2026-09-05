@@ -5,6 +5,7 @@
 #include "core/BufferManager.h"
 #include "core/LineDiff.h"
 #include "core/Paths.h"
+#include "core/PdfExport.h"
 #include "core/SessionStore.h"
 #include "core/SlashCommand.h"
 #include "markdown/DocumentOutline.h"
@@ -16,6 +17,7 @@
 #include "ui/Editor.h"
 #include "ui/FindBar.h"
 #include "ui/OutlineOverlay.h"
+#include "ui/PdfExportOverlay.h"
 #include "ui/SettingsDialog.h"
 #include "ui/StatusBar.h"
 #include "ui/TabStrip.h"
@@ -58,6 +60,7 @@ MainWindow::MainWindow(BufferManager* buffers, ThemeManager* themes, Settings se
     , switcher_(new TabSwitcher(buffers_, this))
     , outline_(new OutlineOverlay(this))
     , themeSwitcher_(new ThemeSwitcher(this))
+    , pdfExport_(new PdfExportOverlay(this))
     , wipe_(new CrtWipe(this))
     , autosave_(new QTimer(this))
     , compareDiffTimer_(new QTimer(this))
@@ -88,6 +91,7 @@ MainWindow::MainWindow(BufferManager* buffers, ThemeManager* themes, Settings se
     switcher_->setParent(root);
     outline_->setParent(root);
     themeSwitcher_->setParent(root);
+    pdfExport_->setParent(root);
     wipe_->setParent(root);
 
     autosave_->setSingleShot(true);
@@ -146,6 +150,8 @@ MainWindow::MainWindow(BufferManager* buffers, ThemeManager* themes, Settings se
         editor->setFocus();
     });
     connect(themeSwitcher_, &ThemeSwitcher::chosen, this, &MainWindow::setThemeId);
+    connect(pdfExport_, &PdfExportOverlay::chosen, this,
+            [this](const QString& id) { exportPdf(id); });
     connect(editor_, &Editor::slashCommand, this,
             [this](const QString& name, const QString& arg, bool* accepted) {
                 if (accepted) {
@@ -265,6 +271,9 @@ void MainWindow::wireShortcuts() {
         themeSwitcher_->open(settings_.themeSource);
     });
     add(QKeySequence(QStringLiteral("Ctrl+Shift+T")), [this]() { cycleTheme(1); });
+    // Deliberately undiscoverable: pdf export has no chrome, only this key,
+    // /pdf, and a row in the Ctrl+K cheat sheet.
+    add(QKeySequence(QStringLiteral("Ctrl+Shift+P")), [this]() { openPdfExport(); });
     add(QKeySequence(QStringLiteral("Ctrl+K")), [this]() {
         cheat_->setGeometry(centralWidget()->rect());
         cheat_->toggle();
@@ -284,6 +293,8 @@ void MainWindow::wireShortcuts() {
             outline_->hide();
         } else if (themeSwitcher_->isVisible()) {
             themeSwitcher_->hide();
+        } else if (pdfExport_->isVisible()) {
+            pdfExport_->hide();
         } else if (findBar_->isVisible()) {
             findBar_->hide();
             focusedEditor()->setFocus();
@@ -411,6 +422,7 @@ void MainWindow::applyTheme() {
     switcher_->setTheme(theme);
     outline_->setTheme(theme);
     themeSwitcher_->setTheme(theme);
+    pdfExport_->setTheme(theme);
     wipe_->setTheme(theme);
     if (comparing_) {
         refreshCompareDiff();
@@ -428,6 +440,7 @@ void MainWindow::applySettings(const Settings& settings) {
     switcher_->setChromeFont(chrome);
     outline_->setChromeFont(chrome);
     themeSwitcher_->setChromeFont(chrome);
+    pdfExport_->setChromeFont(chrome);
     editor_->applySettings(settings_);
     editorRight_->applySettings(settings_);
     applyTheme();
@@ -469,6 +482,60 @@ void MainWindow::openFile() {
         return;
     }
     openPaths({path});
+}
+
+void MainWindow::openPdfExport() {
+    pdfExport_->setGeometry(centralWidget()->rect());
+    pdfExport_->open(settings_.pdfTemplate);
+}
+
+bool MainWindow::exportPdf(const QString& templateId) {
+    Buffer* buffer = buffers_->current();
+    if (!buffer) {
+        return false;
+    }
+    const QString id = PdfTemplates::normalize(templateId);
+    const QString title = buffer->isUnnamed() ? buffer->title()
+                                             : QFileInfo(buffer->path()).completeBaseName();
+
+    QString suggested;
+    if (buffer->path().isEmpty()) {
+        QDir().mkpath(settings_.resolvedNotesDirectory());
+        suggested = settings_.resolvedNotesDirectory() + QLatin1Char('/') + buffer->title()
+                    + QStringLiteral(".pdf");
+    } else {
+        const QFileInfo info(buffer->path());
+        suggested = info.absolutePath() + QLatin1Char('/') + info.completeBaseName()
+                    + QStringLiteral(".pdf");
+    }
+
+    QString path = ThemedDialogs::getSaveFileName(this, QStringLiteral("export pdf"), suggested,
+                                                  QStringLiteral("PDF (*.pdf);;All (*)"));
+    if (path.isEmpty()) {
+        focusedEditor()->setFocus();
+        return false;
+    }
+    if (!path.endsWith(QStringLiteral(".pdf"), Qt::CaseInsensitive)) {
+        path += QStringLiteral(".pdf");
+    }
+
+    PdfExportRequest request;
+    request.markdown = buffer->text();
+    request.title = title;
+    request.templateId = id;
+    request.baseDir = buffer->path().isEmpty() ? Paths::mediaDir()
+                                               : QFileInfo(buffer->path()).absolutePath();
+    request.theme = themes_->theme();
+    request.settings = settings_;
+
+    QString err;
+    const bool ok = PdfExport::write(path, request, &err);
+    if (ok && settings_.pdfTemplate != id) {
+        settings_.pdfTemplate = id;
+        settings_.save();
+    }
+    focusedEditor()->setFocus();
+    return ok;
 }
 
 void MainWindow::openPaths(const QStringList& paths) {
@@ -999,6 +1066,21 @@ bool MainWindow::dispatchSlash(const QString& name, const QString& arg) {
         }
         return insertTableSkeleton(trimmed);
     }
+    if (name == QLatin1String("pdf") || name == QLatin1String("export")) {
+        const QString trimmed = arg.trimmed();
+        if (trimmed.isEmpty()) {
+            openPdfExport();
+            return true;
+        }
+        for (const PdfTemplate& tpl : PdfTemplates::catalog()) {
+            if (tpl.id.compare(trimmed, Qt::CaseInsensitive) == 0) {
+                exportPdf(tpl.id);
+                return true;
+            }
+        }
+        // Unknown template: reject so the editor leaves the text in place.
+        return false;
+    }
     if (name == QLatin1String("theme")) {
         if (arg.isEmpty()) {
             themeSwitcher_->setGeometry(centralWidget()->rect());
@@ -1113,6 +1195,7 @@ void MainWindow::layoutOverlays() {
         switcher_->setGeometry(r);
         outline_->setGeometry(r);
         themeSwitcher_->setGeometry(r);
+        pdfExport_->setGeometry(r);
         wipe_->setGeometry(r);
     }
 }

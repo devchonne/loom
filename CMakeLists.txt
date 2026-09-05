@@ -21,6 +21,7 @@ set(LOOM_SOURCES
     src/core/LineDiff.cpp
     src/core/MarkdownExporter.cpp
     src/core/Paths.cpp
+    src/core/PdfExport.cpp
     src/core/SessionStore.cpp
     src/core/Settings.cpp
     src/core/SlashCommand.cpp
@@ -41,6 +42,7 @@ set(LOOM_SOURCES
     src/ui/FindBar.cpp
     src/ui/MainWindow.cpp
     src/ui/OutlineOverlay.cpp
+    src/ui/PdfExportOverlay.cpp
     src/ui/SettingsDialog.cpp
     src/ui/StatusBar.cpp
     src/ui/TabStrip.cpp
@@ -101,6 +103,7 @@ add_executable(loom_tests
     tests/table_format_test.cpp
     tests/editor_table_test.cpp
     tests/cheat_sheet_test.cpp
+    tests/pdf_export_test.cpp
 )
 target_link_libraries(loom_tests PRIVATE loom_lib GTest::gtest)
 target_compile_options(loom_tests PRIVATE -Wall -Wextra -Wpedantic)

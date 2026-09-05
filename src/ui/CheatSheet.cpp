@@ -26,6 +26,7 @@ const RawEntry kRaw[] = {
     {"files", "Ctrl+S", "save"},
     {"files", "Ctrl+Shift+S", "save as"},
     {"files", "Ctrl+O", "open file"},
+    {"files", "Ctrl+Shift+P", "export pdf (template picker)"},
     {"files", "Ctrl+,", "settings"},
     {"files", "Ctrl+Q", "quit loom"},
 
@@ -82,6 +83,7 @@ const RawEntry kRaw[] = {
     {"slash", "/save, /saveas", "save / save as"},
     {"slash", "/open, /new, /close", "file and tab actions"},
     {"slash", "/rename", "rename current tab"},
+    {"slash", "/pdf [template]", "export pdf"},
     {"slash", "/quit, /exit", "quit loom"},
     {"slash", "/zen 1|0", "zen mode"},
     {"slash", "/md 1|0", "toggle markdown formatting"},

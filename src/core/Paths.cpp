@@ -39,6 +39,14 @@ QString Paths::mediaDir() {
     return stateDir() + QStringLiteral("/media");
 }
 
+QString Paths::stationsFile() {
+    return stateDir() + QStringLiteral("/stations.json");
+}
+
+QString Paths::radioTagCacheFile() {
+    return stateDir() + QStringLiteral("/radio-tags.json");
+}
+
 QString Paths::omarchyThemeFile() {
     return QStandardPaths::writableLocation(QStandardPaths::GenericStateLocation)
         + QStringLiteral("/omarchy/current/theme/colors.toml");

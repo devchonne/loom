@@ -80,6 +80,10 @@ const RawEntry kRaw[] = {
     {"view", "Ctrl+K", "this cheat sheet"},
     {"view", "Esc", "dismiss overlay"},
 
+    {"radio", "Ctrl+Alt+R", "radio library"},
+    {"radio", "Ctrl+Alt+P", "radio play / pause"},
+    {"radio", "Ctrl+Alt+S", "radio stop"},
+
     {"slash", "/save, /saveas", "save / save as"},
     {"slash", "/open, /new, /close", "file and tab actions"},
     {"slash", "/rename", "rename current tab"},
@@ -103,6 +107,9 @@ const RawEntry kRaw[] = {
     {"slash", "/theme [name]", "theme picker or pick a palette"},
     {"slash", "/settings", "open settings"},
     {"slash", "/help, /keys", "this cheat sheet"},
+    {"slash", "/radio [play|pause|stop|add]", "radio player"},
+    {"slash", "/radio mini 1|0", "footer mini player"},
+    {"slash", "/radio vol 0-100", "radio volume"},
 };
 
 }  // namespace

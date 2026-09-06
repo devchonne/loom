@@ -12,6 +12,10 @@ class Editor;
 class FindBar;
 class OutlineOverlay;
 class PdfExportOverlay;
+class RadioDirectory;
+class RadioOverlay;
+class RadioPlayer;
+class StationLibrary;
 class StatusBar;
 class TabStrip;
 class TabSwitcher;
@@ -79,6 +83,9 @@ private:
     void scheduleCompareDiff();
     void refreshCompareDiff();
     void syncWeatherSound();
+    void openRadio();
+    void syncRadioChrome();
+    bool dispatchRadioSlash(const QString& arg);
 
     BufferManager* buffers_ = nullptr;
     ThemeManager* themes_ = nullptr;
@@ -98,6 +105,12 @@ private:
     QTimer* autosave_ = nullptr;
     QTimer* compareDiffTimer_ = nullptr;
     WeatherSound* weatherSound_ = nullptr;
+    // Declared before radioOverlay_, which takes the first two in its
+    // constructor: members initialise in declaration order.
+    StationLibrary* stations_ = nullptr;
+    RadioDirectory* directory_ = nullptr;
+    RadioPlayer* radio_ = nullptr;
+    RadioOverlay* radioOverlay_ = nullptr;
     bool zen_ = false;
     bool shown_ = false;
     bool comparing_ = false;

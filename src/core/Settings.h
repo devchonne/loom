@@ -19,6 +19,10 @@ struct Settings {
     // Last template used by the hidden pdf export (Ctrl+Shift+P). Intentionally
     // absent from the settings dialog.
     QString pdfTemplate = QStringLiteral("paper");
+    // Radio. The mini-player toggle lives in the radio dialog, not here.
+    bool radioMiniPlayer = true;
+    double radioVolume = 0.8;
+    QString radioLastStation;
 
     static Settings load();
     bool save(QString* error = nullptr) const;

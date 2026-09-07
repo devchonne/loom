@@ -8,6 +8,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QStandardPaths>
+#include <QtGlobal>
 
 #include <sstream>
 #include <toml++/toml.hpp>
@@ -46,6 +47,10 @@ Settings Settings::load() {
             QString::fromStdString(tbl["notes_directory"].value_or(s.notesDirectory.toStdString()));
         s.pdfTemplate =
             QString::fromStdString(tbl["pdf_template"].value_or(s.pdfTemplate.toStdString()));
+        s.radioMiniPlayer = tbl["radio_mini_player"].value_or(s.radioMiniPlayer);
+        s.radioVolume = qBound(0.0, tbl["radio_volume"].value_or(s.radioVolume), 1.0);
+        s.radioLastStation =
+            QString::fromStdString(tbl["radio_last_station"].value_or(s.radioLastStation.toStdString()));
     } catch (const toml::parse_error&) {
         return s;
     }
@@ -68,6 +73,9 @@ bool Settings::save(QString* error) const {
     tbl.insert("keyclick", keyclick);
     tbl.insert("notes_directory", notesDirectory.toStdString());
     tbl.insert("pdf_template", pdfTemplate.toStdString());
+    tbl.insert("radio_mini_player", radioMiniPlayer);
+    tbl.insert("radio_volume", radioVolume);
+    tbl.insert("radio_last_station", radioLastStation.toStdString());
 
     std::ostringstream ss;
     ss << tbl;

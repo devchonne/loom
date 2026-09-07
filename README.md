@@ -20,6 +20,7 @@ loom is built primarily for Hyprland on Arch, with live theme inheritance from [
 - Checkboxes (`[]` / `[x]`, nest with `[[]]`, `[[[]]]`, ... like `*`/`**` indent) render as a clickable square with a checkmark — click to toggle
 - Table of contents generation (`/toc`) and a jump-to-heading outline overlay (`Ctrl+Shift+O`)
 - PDF export with selectable templates, behind `Ctrl+Shift+P` (no UI chrome)
+- Internet radio: a local station library, searchable public directory, and an icon-only mini player in the footer
 - In-document anchor links: click (or `Ctrl+Enter`) to follow, `Alt+Left` to jump back. `Ctrl+click` also opens external URLs.
 
 <img width="1708" height="1362" alt="image" src="https://github.com/user-attachments/assets/a5a10553-2376-4c03-8d26-e949bb714722" />
@@ -137,6 +138,9 @@ The important ones:
 | `Ctrl+M` | toggle markdown rendering |
 | `Ctrl+Shift+F` | zen mode |
 | `Ctrl+Shift+O` | outline overlay (jump to heading) |
+| `Ctrl+Alt+R` | radio library |
+| `Ctrl+Alt+P` | radio play / pause |
+| `Ctrl+Alt+S` | radio stop |
 | `Ctrl+Shift+\` | align the table under the caret |
 | `Tab` / `Shift+Tab` (in a table) | move to the next / previous cell |
 | `Enter` (in a table) | insert a row (on a blank last row, leave the table) |
@@ -147,7 +151,7 @@ The important ones:
 | `Alt+Left` | jump back after following a link |
 | `Ctrl` + wheel | zoom |
 
-Slash commands (type `/` at the start of a line): `/toc [depth]` inserts or refreshes a table of contents, `/toc list` and `/outline` open the outline overlay, `/table [NxM|align]` inserts a table skeleton or aligns the current one, `/table row|col` and `/table delrow|delcol` edit the table under the caret, `/pdf [template]` exports a PDF.
+Slash commands (type `/` at the start of a line): `/toc [depth]` inserts or refreshes a table of contents, `/toc list` and `/outline` open the outline overlay, `/table [NxM|align]` inserts a table skeleton or aligns the current one, `/table row|col` and `/table delrow|delcol` edit the table under the caret, `/pdf [template]` exports a PDF, `/radio [play|pause|stop|add]` drives the radio player (`/radio mini 1|0` hides the footer control, `/radio vol 0-100` sets volume).
 
 ### PDF export
 
@@ -166,11 +170,22 @@ Checkboxes export as `[ ]` / `[x]` with no bullet in front, `*`/`**`/`***` nesti
 <img width="1709" height="1364" alt="image" src="https://github.com/user-attachments/assets/02b6e0b6-f8d2-4bd6-85f7-6cf0629b7fd9" />
 
 
+### Radio
+
+`Ctrl+Alt+R` (or `/radio`) opens the station library. Stations are yours and local — nothing syncs anywhere. `enter` plays, `alt+f` favorites, `alt+d` removes, `alt+a` opens the manual add form. `tab` cycles `all` / `favorites` / `recent` / `browse`, and the genre dropdown narrows the list further.
+
+The `browse` tab searches [Radio Browser](https://www.radio-browser.info), which ships pre-configured — no key, no account, nothing to set up. It picks a mirror by DNS SRV lookup so one server going down does not break discovery. Results are throwaway until you press `enter` to save one; stations the directory could not reach recently are dimmed and sorted last. Genres are always picked from the directory's own tag vocabulary rather than typed, so filtering stays consistent for manual and directory-added stations alike.
+
+Once something is playing, a play/pause and stop pair sits in the footer next to the theme name. It only appears once you have saved at least one station, clicking the space around the icons reopens the dialog on the playing station, and stop tears the stream down rather than pausing it. The `show mini player` checkbox in the dialog (or `/radio mini 0`) hides it for good. It is not visible in zen mode, where `Ctrl+Alt+P` / `Ctrl+Alt+S` and the slash commands take over.
+
+`.pls` and `.m3u` playlists are fetched and unwrapped once to find the real stream. Dropped streams reconnect with a short backoff before giving up. HLS (`.m3u8`) is not supported yet.
+
 ## Files
 
 - Config: `~/.config/loom/config.toml`
 - Session: `~/.local/state/loom/session.json`
 - Scratch notes: `~/.local/state/loom/scratch/`
+- Radio stations: `~/.local/state/loom/stations.json`
 
 Unnamed tabs survive reboot. Named files autosave by default (toggle in settings).
 

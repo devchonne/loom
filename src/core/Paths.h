@@ -10,6 +10,8 @@ QString sessionFile();
 QString scratchDir();
 QString scratchFile(const QString& id);
 QString mediaDir();
+QString stationsFile();
+QString radioTagCacheFile();
 QString omarchyThemeFile();
 QString omarchyThemeNameFile();
 void ensureDirectories();

@@ -6,8 +6,11 @@
 #include "core/LineDiff.h"
 #include "core/Paths.h"
 #include "core/PdfExport.h"
+#include "core/RadioDirectory.h"
+#include "core/RadioPlayer.h"
 #include "core/SessionStore.h"
 #include "core/SlashCommand.h"
+#include "core/StationLibrary.h"
 #include "markdown/DocumentOutline.h"
 #include "markdown/TableFormat.h"
 #include "theme/Fonts.h"
@@ -18,6 +21,7 @@
 #include "ui/FindBar.h"
 #include "ui/OutlineOverlay.h"
 #include "ui/PdfExportOverlay.h"
+#include "ui/RadioOverlay.h"
 #include "ui/SettingsDialog.h"
 #include "ui/StatusBar.h"
 #include "ui/TabStrip.h"
@@ -65,6 +69,10 @@ MainWindow::MainWindow(BufferManager* buffers, ThemeManager* themes, Settings se
     , autosave_(new QTimer(this))
     , compareDiffTimer_(new QTimer(this))
     , weatherSound_(new WeatherSound(this))
+    , stations_(new StationLibrary(this))
+    , directory_(new RadioDirectory(this))
+    , radio_(new RadioPlayer(this))
+    , radioOverlay_(new RadioOverlay(stations_, directory_, this))
     , zen_(settings_.zenByDefault) {
     setWindowTitle(QStringLiteral("loom"));
     resize(960, 700);
@@ -92,6 +100,7 @@ MainWindow::MainWindow(BufferManager* buffers, ThemeManager* themes, Settings se
     outline_->setParent(root);
     themeSwitcher_->setParent(root);
     pdfExport_->setParent(root);
+    radioOverlay_->setParent(root);
     wipe_->setParent(root);
 
     autosave_->setSingleShot(true);
@@ -152,6 +161,40 @@ MainWindow::MainWindow(BufferManager* buffers, ThemeManager* themes, Settings se
     connect(themeSwitcher_, &ThemeSwitcher::chosen, this, &MainWindow::setThemeId);
     connect(pdfExport_, &PdfExportOverlay::chosen, this,
             [this](const QString& id) { exportPdf(id); });
+    connect(radioOverlay_, &RadioOverlay::playRequested, this, [this](const QString& id) {
+        if (const RadioStation* station = stations_->byId(id)) {
+            radio_->play(*station);
+        }
+    });
+    connect(radioOverlay_, &RadioOverlay::stopRequested, this, [this]() { radio_->stop(); });
+    connect(radioOverlay_, &RadioOverlay::miniPlayerToggled, this, [this](bool enabled) {
+        settings_.radioMiniPlayer = enabled;
+        settings_.save();
+        syncRadioChrome();
+    });
+    connect(radio_, &RadioPlayer::stateChanged, this, [this](RadioState) { syncRadioChrome(); });
+    connect(radio_, &RadioPlayer::stationChanged, this, [this](const QString& id) {
+        settings_.radioLastStation = id;
+        settings_.save();
+        radioOverlay_->setPlayingStation(id);
+    });
+    connect(radio_, &RadioPlayer::started, this,
+            [this](const QString& id) { stations_->markPlayed(id); });
+    connect(radio_, &RadioPlayer::message, this,
+            [this](const QString& text) { radioOverlay_->setStatusMessage(text); });
+    connect(stations_, &StationLibrary::changed, this, [this]() { syncRadioChrome(); });
+    connect(status_, &StatusBar::radioToggleClicked, this, [this]() {
+        if (!radio_->isActive() && !settings_.radioLastStation.isEmpty()) {
+            // Nothing loaded yet: fall back to whatever played last.
+            if (const RadioStation* station = stations_->byId(settings_.radioLastStation)) {
+                radio_->play(*station);
+                return;
+            }
+        }
+        radio_->toggle();
+    });
+    connect(status_, &StatusBar::radioStopClicked, this, [this]() { radio_->stop(); });
+    connect(status_, &StatusBar::radioOpenClicked, this, [this]() { openRadio(); });
     connect(editor_, &Editor::slashCommand, this,
             [this](const QString& name, const QString& arg, bool* accepted) {
                 if (accepted) {
@@ -167,6 +210,11 @@ MainWindow::MainWindow(BufferManager* buffers, ThemeManager* themes, Settings se
 
     wireShortcuts();
     applySettings(settings_);
+    // The library has to exist before the footer can decide whether to show the
+    // mini player at all.
+    stations_->load();
+    radioOverlay_->setPlayingStation(settings_.radioLastStation);
+    syncRadioChrome();
     if (buffers_->count() == 0) {
         buffers_->createScratch();
     } else {
@@ -274,6 +322,17 @@ void MainWindow::wireShortcuts() {
     // Deliberately undiscoverable: pdf export has no chrome, only this key,
     // /pdf, and a row in the Ctrl+K cheat sheet.
     add(QKeySequence(QStringLiteral("Ctrl+Shift+P")), [this]() { openPdfExport(); });
+    add(QKeySequence(QStringLiteral("Ctrl+Alt+R")), [this]() { openRadio(); });
+    add(QKeySequence(QStringLiteral("Ctrl+Alt+P")), [this]() {
+        if (!radio_->isActive() && !settings_.radioLastStation.isEmpty()) {
+            if (const RadioStation* station = stations_->byId(settings_.radioLastStation)) {
+                radio_->play(*station);
+                return;
+            }
+        }
+        radio_->toggle();
+    });
+    add(QKeySequence(QStringLiteral("Ctrl+Alt+S")), [this]() { radio_->stop(); });
     add(QKeySequence(QStringLiteral("Ctrl+K")), [this]() {
         cheat_->setGeometry(centralWidget()->rect());
         cheat_->toggle();
@@ -295,6 +354,8 @@ void MainWindow::wireShortcuts() {
             themeSwitcher_->hide();
         } else if (pdfExport_->isVisible()) {
             pdfExport_->hide();
+        } else if (radioOverlay_->isVisible()) {
+            radioOverlay_->dismiss();
         } else if (findBar_->isVisible()) {
             findBar_->hide();
             focusedEditor()->setFocus();
@@ -423,6 +484,7 @@ void MainWindow::applyTheme() {
     outline_->setTheme(theme);
     themeSwitcher_->setTheme(theme);
     pdfExport_->setTheme(theme);
+    radioOverlay_->setTheme(theme);
     wipe_->setTheme(theme);
     if (comparing_) {
         refreshCompareDiff();
@@ -441,8 +503,12 @@ void MainWindow::applySettings(const Settings& settings) {
     outline_->setChromeFont(chrome);
     themeSwitcher_->setChromeFont(chrome);
     pdfExport_->setChromeFont(chrome);
+    radioOverlay_->setChromeFont(chrome);
     editor_->applySettings(settings_);
     editorRight_->applySettings(settings_);
+    radio_->setVolume(settings_.radioVolume);
+    radioOverlay_->setMiniPlayerEnabled(settings_.radioMiniPlayer);
+    syncRadioChrome();
     applyTheme();
 }
 
@@ -856,6 +922,18 @@ void MainWindow::syncWeatherSound() {
     weatherSound_->setWeather(editor_->weatherMode());
 }
 
+void MainWindow::openRadio() {
+    radioOverlay_->setGeometry(centralWidget()->rect());
+    radioOverlay_->open();
+}
+
+void MainWindow::syncRadioChrome() {
+    // The mini player only exists once there is something to play, and can be
+    // switched off entirely from the radio dialog.
+    const bool visible = settings_.radioMiniPlayer && !stations_->isEmpty();
+    status_->setRadio(visible, radio_->state());
+}
+
 void MainWindow::scheduleCompareDiff() {
     if (comparing_) {
         compareDiffTimer_->start();
@@ -1152,11 +1230,91 @@ bool MainWindow::dispatchSlash(const QString& name, const QString& arg) {
         return true;
     }
 
+    if (name == QLatin1String("radio")) {
+        return dispatchRadioSlash(arg);
+    }
+
     for (const ThemeSpec& spec : Palettes::catalog()) {
         if (spec.id == name) {
             setThemeId(spec.id);
             return true;
         }
+    }
+    return false;
+}
+
+bool MainWindow::dispatchRadioSlash(const QString& arg) {
+    const QString trimmed = arg.trimmed();
+    if (trimmed.isEmpty()) {
+        openRadio();
+        return true;
+    }
+
+    const int split = trimmed.indexOf(QLatin1Char(' '));
+    const QString sub = (split < 0 ? trimmed : trimmed.left(split)).toLower();
+    const QString rest = split < 0 ? QString() : trimmed.mid(split + 1).trimmed();
+
+    if (sub == QLatin1String("add")) {
+        radioOverlay_->setGeometry(centralWidget()->rect());
+        radioOverlay_->openAdd();
+        return true;
+    }
+    if (sub == QLatin1String("stop")) {
+        radio_->stop();
+        return true;
+    }
+    if (sub == QLatin1String("pause")) {
+        radio_->pause();
+        return true;
+    }
+    if (sub == QLatin1String("play")) {
+        if (rest.isEmpty()) {
+            radio_->resume();
+            return true;
+        }
+        const RadioStation* station = stations_->findByName(rest);
+        if (!station) {
+            // Unknown station: reject so the editor leaves the text in place.
+            return false;
+        }
+        radio_->play(*station);
+        return true;
+    }
+    if (sub == QLatin1String("mini")) {
+        switch (parseOnOff(rest)) {
+        case OnOff::Default:
+            settings_.radioMiniPlayer = !settings_.radioMiniPlayer;
+            break;
+        case OnOff::On:
+            settings_.radioMiniPlayer = true;
+            break;
+        case OnOff::Off:
+            settings_.radioMiniPlayer = false;
+            break;
+        case OnOff::Invalid:
+            return false;
+        }
+        settings_.save();
+        radioOverlay_->setMiniPlayerEnabled(settings_.radioMiniPlayer);
+        syncRadioChrome();
+        return true;
+    }
+    if (sub == QLatin1String("vol")) {
+        bool ok = false;
+        const int percent = rest.toInt(&ok);
+        if (!ok || percent < 0 || percent > 100) {
+            return false;
+        }
+        settings_.radioVolume = double(percent) / 100.0;
+        settings_.save();
+        radio_->setVolume(settings_.radioVolume);
+        return true;
+    }
+
+    // Bare name: `/radio groove salad` plays it directly.
+    if (const RadioStation* station = stations_->findByName(trimmed)) {
+        radio_->play(*station);
+        return true;
     }
     return false;
 }
@@ -1196,6 +1354,7 @@ void MainWindow::layoutOverlays() {
         outline_->setGeometry(r);
         themeSwitcher_->setGeometry(r);
         pdfExport_->setGeometry(r);
+        radioOverlay_->setGeometry(r);
         wipe_->setGeometry(r);
     }
 }

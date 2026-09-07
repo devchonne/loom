@@ -22,9 +22,14 @@ set(LOOM_SOURCES
     src/core/MarkdownExporter.cpp
     src/core/Paths.cpp
     src/core/PdfExport.cpp
+    src/core/PlaylistResolver.cpp
+    src/core/RadioDirectory.cpp
+    src/core/RadioPlayer.cpp
+    src/core/RadioStation.cpp
     src/core/SessionStore.cpp
     src/core/Settings.cpp
     src/core/SlashCommand.cpp
+    src/core/StationLibrary.cpp
     src/markdown/CodeSyntax.cpp
     src/markdown/DocumentOutline.cpp
     src/markdown/MarkdownHighlighter.cpp
@@ -43,6 +48,7 @@ set(LOOM_SOURCES
     src/ui/MainWindow.cpp
     src/ui/OutlineOverlay.cpp
     src/ui/PdfExportOverlay.cpp
+    src/ui/RadioOverlay.cpp
     src/ui/SettingsDialog.cpp
     src/ui/StatusBar.cpp
     src/ui/TabStrip.cpp
@@ -104,6 +110,8 @@ add_executable(loom_tests
     tests/editor_table_test.cpp
     tests/cheat_sheet_test.cpp
     tests/pdf_export_test.cpp
+    tests/radio_library_test.cpp
+    tests/radio_directory_test.cpp
 )
 target_link_libraries(loom_tests PRIVATE loom_lib GTest::gtest)
 target_compile_options(loom_tests PRIVATE -Wall -Wextra -Wpedantic)

@@ -100,6 +100,12 @@ QTextCharFormat MarkdownHighlighter::formatFor(SpanKind kind, int headingLevel) 
         fmt.setForeground(theme_.magenta);
         fmt.setFontUnderline(true);
         break;
+    case SpanKind::WikiLinkText:
+        // Vault-internal navigation, so it reads as a sibling of the anchor
+        // link rather than of an external url.
+        fmt.setForeground(theme_.accent);
+        fmt.setFontUnderline(true);
+        break;
     case SpanKind::LinkUrl:
         fmt.setForeground(theme_.cyan);
         fmt.setFontPointSize(basePointSize_ * 0.85);

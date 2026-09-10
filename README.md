@@ -22,6 +22,7 @@ loom is built primarily for Hyprland on Arch, with live theme inheritance from [
 - PDF export with selectable templates, behind `Ctrl+Shift+P` (no UI chrome)
 - Internet radio: a local station library, searchable public directory, and an icon-only mini player in the footer
 - In-document anchor links: click (or `Ctrl+Enter`) to follow, `Alt+Left` to jump back. `Ctrl+click` also opens external URLs.
+- Optional vaults: point loom at a folder and get a file tree, `[[wikilinks]]`, backlinks and a note switcher. Off by default, and invisible when off.
 
 <img width="1708" height="1362" alt="image" src="https://github.com/user-attachments/assets/a5a10553-2376-4c03-8d26-e949bb714722" />
 <img width="1707" height="1362" alt="image" src="https://github.com/user-attachments/assets/8278103b-4d27-42b6-b2a8-4e81a81d023a" />
@@ -119,7 +120,7 @@ update-desktop-database ~/.local/share/applications
 
 ## Shortcuts
 
-`Ctrl+K` inside the app lists everything. Start typing to search every shortcut *and* slash command at once — matching happens across keys, descriptions and section names, and each tab shows how many hits it holds. `Tab` / `Shift+Tab` cycles the sections (`all`, `files`, `tabs`, `edit`, `tables`, `navigate`, `view`, `slash`), `Up`/`Down` walks the list, and `Esc` clears the query before it closes the overlay.
+`Ctrl+K` inside the app lists everything. Start typing to search every shortcut *and* slash command at once — matching happens across keys, descriptions and section names, and each tab shows how many hits it holds. `Tab` / `Shift+Tab` cycles the sections (`all`, `files`, `tabs`, `edit`, `tables`, `navigate`, `view`, `radio`, `vault`, `slash`), `Up`/`Down` walks the list, and `Esc` clears the query before it closes the overlay.
 
 The important ones:
 
@@ -138,6 +139,10 @@ The important ones:
 | `Ctrl+M` | toggle markdown rendering |
 | `Ctrl+Shift+F` | zen mode |
 | `Ctrl+Shift+O` | outline overlay (jump to heading) |
+| `Ctrl+E` | vault tree (only with a vault configured) |
+| `Ctrl+Shift+E` | open a note in the vault |
+| `Ctrl+Shift+B` | backlinks to this note |
+| `Ctrl+Shift+V` | switch vault |
 | `Ctrl+Alt+R` | radio library |
 | `Ctrl+Alt+P` | radio play / pause |
 | `Ctrl+Alt+S` | radio stop |
@@ -151,7 +156,37 @@ The important ones:
 | `Alt+Left` | jump back after following a link |
 | `Ctrl` + wheel | zoom |
 
-Slash commands (type `/` at the start of a line): `/toc [depth]` inserts or refreshes a table of contents, `/toc list` and `/outline` open the outline overlay, `/table [NxM|align]` inserts a table skeleton or aligns the current one, `/table row|col` and `/table delrow|delcol` edit the table under the caret, `/pdf [template]` exports a PDF, `/radio [play|pause|stop|add]` drives the radio player (`/radio mini 1|0` hides the footer control, `/radio vol 0-100` sets volume).
+Slash commands (type `/` at the start of a line): `/toc [depth]` inserts or refreshes a table of contents, `/toc list` and `/outline` open the outline overlay, `/table [NxM|align]` inserts a table skeleton or aligns the current one, `/table row|col` and `/table delrow|delcol` edit the table under the caret, `/pdf [template]` exports a PDF, `/radio [play|pause|stop|add]` drives the radio player (`/radio mini 1|0` hides the footer control, `/radio vol 0-100` sets volume), `/vault [path]` opens a vault or the note switcher (`/vault tree 1|0`, `/vault new`, `/vault links`, `/vault switch`, `/vault reveal`, `/vault off`).
+
+### Vaults
+
+A vault is one folder, and nothing more. Point loom at it in **settings** (`Ctrl+,`) — tick `enable vault`, pick a directory — and notes inside that folder gain a file tree, `[[wikilinks]]`, backlinks and a name-based note switcher. Notes outside it behave exactly as they always have.
+
+The whole feature is off by default, and off is genuinely free: no index, no file watcher, and no sidebar widget is ever built. There is deliberately no visual hint that vaults exist until you turn them on.
+
+It is a place, not a mode. loom never asks "am I in vault mode?", only "is this file inside the vault?" — so a scratch buffer, a stray `/tmp/notes.md` and a vault note can sit in three tabs at once and each does the right thing. Switching vaults does not disturb your open tabs.
+
+`Ctrl+E` shows and hides the tree, and hidden means gone — no collapsed strip, no splitter handle, nothing. It stays hidden in zen mode and comes back when you leave. The vault folder is the single top-level row, so everything you create visibly hangs off one named parent, and names are shown without their extension (`monday`, not `monday.md`). In the tree, `Enter` opens (or expands), `Alt+N` and `Alt+D` create a note or folder, `Alt+R` renames, `Delete` removes, and dragging moves things. Renaming or moving a file that is open in a tab retargets the tab instead of leaving it pointing at a path that no longer exists. Right-click for the same actions plus **show in file manager**, which opens the folder — or the containing folder with the file selected — in your desktop file manager.
+
+New notes are markdown: type `meeting` and you get `meeting.md`. If you want something else, say so explicitly (`scratch.txt`) and that is what you get. Because extensions are hidden, renaming keeps the one the file already had — typing `tuesday` over `monday` gives you `tuesday.md`, never a suffixless file the vault would stop treating as a note.
+
+| Link | Means |
+| --- | --- |
+| `[[note]]` | the note named "note", found anywhere in the vault |
+| `[[note\|label]]` | same target, different link text |
+| `[[note#heading]]` | straight to that heading |
+
+Click a `[[link]]` (no modifier needed, like a heading link) or press `Ctrl+Enter` on it. If the note does not exist yet, following the link creates it, seeded with an H1 — but only ever inside a vault, so a plain scratchpad never grows files behind your back. `Alt+Left` jumps back, across files as well as within one. When two notes share a name, a sibling in the same folder wins, then the shallowest path.
+
+Links only ever open files loom can edit as text (`.md`, `.markdown`, `.txt`); a link pointing at an image or any other asset is handed to the desktop instead of being decoded into a buffer. Targets that try to climb out of the vault with `..` or an absolute path are refused rather than followed.
+
+Turning the vault off does not break documents you wrote with it on: a `[[link]]` still resolves, just relative to the file it sits in rather than by name across a tree. Same syntax, same click, narrower reach — which also makes wikilinks quietly useful with no vault at all.
+
+Backlinks (`Ctrl+Shift+B`) are computed when you ask for them rather than kept warm in the background, since they are the only vault operation that needs to read file contents. They use the editor's own markdown parser, so a link inside a code fence is not counted.
+
+One syntax note: `[[` is also loom's nested-checkbox marker. A checkbox wins at the start of a line, so `[[]] task` and `[[x]] done` stay checkboxes; `[[note]]` has content between the brackets and stays a link. The only casualty is a note named exactly `x`, which cannot be addressed at the very start of a line.
+
+Vault metadata — which vaults you have opened, tree width — lives in `~/.local/state/loom/vaults.json`. Nothing is ever written *into* the vault folder: no dotfolder, no index, no sidecar files. It stays a plain directory of plain markdown that any other tool can read.
 
 ### PDF export
 
@@ -186,6 +221,7 @@ Once something is playing, a play/pause and stop pair sits in the footer next to
 - Session: `~/.local/state/loom/session.json`
 - Scratch notes: `~/.local/state/loom/scratch/`
 - Radio stations: `~/.local/state/loom/stations.json`
+- Known vaults: `~/.local/state/loom/vaults.json` (only written once you enable a vault)
 
 Unnamed tabs survive reboot. Named files autosave by default (toggle in settings).
 

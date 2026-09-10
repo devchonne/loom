@@ -416,3 +416,141 @@ TEST(CodeSyntax, PythonTokens) {
     EXPECT_TRUE(sawComment);
     EXPECT_TRUE(CodeSyntax::tokenize(QStringLiteral("x = 1"), QStringLiteral("unknown")).isEmpty());
 }
+
+TEST(MarkdownRules, WikiLinkProducesAWikiLinkRef) {
+    const QString line = QStringLiteral("see [[some note]] please");
+    const ParseResult r = MarkdownRules::parseLine(line, 0, false);
+    ASSERT_EQ(r.links.size(), 1);
+    EXPECT_TRUE(r.links.front().wiki);
+    EXPECT_EQ(r.links.front().target, QStringLiteral("some note"));
+    // The ref covers the whole "[[...]]" so a click anywhere on it follows.
+    EXPECT_EQ(line.mid(r.links.front().start, r.links.front().length),
+              QStringLiteral("[[some note]]"));
+
+    bool sawText = false;
+    for (const Span& span : r.spans) {
+        if (span.kind == SpanKind::WikiLinkText) {
+            sawText = true;
+            EXPECT_EQ(line.mid(span.start, span.length), QStringLiteral("some note"));
+        }
+    }
+    EXPECT_TRUE(sawText);
+}
+
+TEST(MarkdownRules, WikiLinkAliasShowsTheLabelAndLinksTheTarget) {
+    const QString line = QStringLiteral("[[target note|the label]]");
+    const ParseResult r = MarkdownRules::parseLine(line, 0, false);
+    ASSERT_EQ(r.links.size(), 1);
+    EXPECT_TRUE(r.links.front().wiki);
+    EXPECT_EQ(r.links.front().target, QStringLiteral("target note"));
+    for (const Span& span : r.spans) {
+        if (span.kind == SpanKind::WikiLinkText) {
+            EXPECT_EQ(line.mid(span.start, span.length), QStringLiteral("the label"));
+        }
+    }
+}
+
+TEST(MarkdownRules, WikiLinkKeepsItsAnchorInTheTarget) {
+    const ParseResult r = MarkdownRules::parseLine(QStringLiteral("[[note#heading]]"), 0, false);
+    ASSERT_EQ(r.links.size(), 1);
+    EXPECT_EQ(r.links.front().target, QStringLiteral("note#heading"));
+}
+
+TEST(MarkdownRules, WikiLinkMarkersHideAndReveal) {
+    const ParseResult hidden = MarkdownRules::parseLine(QStringLiteral("[[note]]"), 0, false);
+    const ParseResult shown = MarkdownRules::parseLine(QStringLiteral("[[note]]"), 0, true);
+    int hiddenMarkers = 0;
+    for (const Span& span : hidden.spans) {
+        hiddenMarkers += span.kind == SpanKind::HiddenMarker ? 1 : 0;
+    }
+    int shownMarkers = 0;
+    for (const Span& span : shown.spans) {
+        shownMarkers += span.kind == SpanKind::Marker ? 1 : 0;
+    }
+    // "[[" and "]]" either both hide or both show, like every other marker pair.
+    EXPECT_EQ(hiddenMarkers, 2);
+    EXPECT_EQ(shownMarkers, 2);
+}
+
+TEST(MarkdownRules, OrdinaryLinksAreNotMarkedAsWiki) {
+    const ParseResult r =
+        MarkdownRules::parseLine(QStringLiteral("[text](https://example.com)"), 0, false);
+    ASSERT_EQ(r.links.size(), 1);
+    EXPECT_FALSE(r.links.front().wiki);
+    EXPECT_EQ(r.links.front().target, QStringLiteral("https://example.com"));
+}
+
+// The one real collision: "[[" is also loom's nested-checkbox syntax. A checkbox
+// is recognised at the start of a line, so it must keep winning there.
+TEST(MarkdownRules, NestedCheckboxStillBeatsAWikiLinkAtLineStart) {
+    for (const QString& line : {QStringLiteral("[[]] a nested task"),
+                                QStringLiteral("[[x]] a done nested task"),
+                                QStringLiteral("  [[]] indented too")}) {
+        const ParseResult r = MarkdownRules::parseLine(line, 0, false);
+        EXPECT_EQ(r.kind, BlockKind::Checklist) << line.toStdString();
+        EXPECT_TRUE(r.links.isEmpty()) << line.toStdString();
+        EXPECT_GE(r.checkboxStart, 0) << line.toStdString();
+    }
+}
+
+TEST(MarkdownRules, ContentBearingWikiLinkAtLineStartIsALink) {
+    // "[[note]]" has content between the brackets, so the checklist pattern does
+    // not match it and it stays a link even at the very start of a line.
+    const ParseResult r = MarkdownRules::parseLine(QStringLiteral("[[note]] opens it"), 0, false);
+    EXPECT_NE(r.kind, BlockKind::Checklist);
+    ASSERT_EQ(r.links.size(), 1);
+    EXPECT_TRUE(r.links.front().wiki);
+    EXPECT_EQ(r.links.front().target, QStringLiteral("note"));
+}
+
+TEST(MarkdownRules, WikiLinkWorksInsideHeadingsListsQuotesAndTables) {
+    struct Case {
+        QString line;
+        BlockKind kind;
+    };
+    const Case cases[] = {
+        {QStringLiteral("# heading with [[note]]"), BlockKind::Heading},
+        {QStringLiteral("* item with [[note]]"), BlockKind::List},
+        {QStringLiteral("> quote with [[note]]"), BlockKind::Quote},
+        {QStringLiteral("* [ ] task with [[note]]"), BlockKind::List},
+    };
+    for (const Case& c : cases) {
+        const ParseResult r = MarkdownRules::parseLine(c.line, 0, false);
+        EXPECT_EQ(r.kind, c.kind) << c.line.toStdString();
+        ASSERT_EQ(r.links.size(), 1) << c.line.toStdString();
+        EXPECT_TRUE(r.links.front().wiki) << c.line.toStdString();
+        EXPECT_EQ(r.links.front().target, QStringLiteral("note")) << c.line.toStdString();
+    }
+
+    const ParseResult row =
+        MarkdownRules::parseLine(QStringLiteral("| [[note]] | b |"), StateTable, false);
+    EXPECT_EQ(row.kind, BlockKind::TableRow);
+    ASSERT_EQ(row.links.size(), 1);
+    EXPECT_TRUE(row.links.front().wiki);
+}
+
+TEST(MarkdownRules, UnterminatedOrEmptyWikiLinkIsNotALink) {
+    for (const QString& line : {QStringLiteral("see [[unclosed note"),
+                                QStringLiteral("see [[]] nothing"),
+                                QStringLiteral("see [[   ]] blank")}) {
+        const ParseResult r = MarkdownRules::parseLine(line, 0, false);
+        EXPECT_TRUE(r.links.isEmpty()) << line.toStdString();
+    }
+}
+
+TEST(MarkdownRules, WikiLinksInsideAFenceAreNotLinks) {
+    const ParseResult r = MarkdownRules::parseLine(QStringLiteral("[[note]]"), StateFence, false);
+    EXPECT_EQ(r.kind, BlockKind::FenceBody);
+    EXPECT_TRUE(r.links.isEmpty());
+}
+
+TEST(MarkdownRules, TwoWikiLinksOnOneLineBothResolve) {
+    const ParseResult r =
+        MarkdownRules::parseLine(QStringLiteral("[[first]] and [[second]]"), 0, false);
+    ASSERT_EQ(r.links.size(), 2);
+    EXPECT_EQ(r.links[0].target, QStringLiteral("first"));
+    EXPECT_EQ(r.links[1].target, QStringLiteral("second"));
+    // Spans must not overlap, or the highlighter would fight itself.
+    EXPECT_LE(r.links[0].start + r.links[0].length, r.links[1].start);
+}
+

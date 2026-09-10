@@ -12,6 +12,7 @@ QString scratchFile(const QString& id);
 QString mediaDir();
 QString stationsFile();
 QString radioTagCacheFile();
+QString vaultsFile();
 QString omarchyThemeFile();
 QString omarchyThemeNameFile();
 void ensureDirectories();

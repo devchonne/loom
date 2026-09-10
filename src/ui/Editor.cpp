@@ -758,11 +758,13 @@ void Editor::mousePressEvent(QMouseEvent* event) {
         const QTextCursor hit = cursorForPosition(event->pos());
         if (const auto link = linkAt(hit.position())) {
             const bool ctrl = event->modifiers() & Qt::ControlModifier;
-            const bool anchor = link->target.startsWith(QLatin1Char('#'));
+            // Anchors and wikilinks are internal navigation, so a bare click
+            // follows them. External urls still need Ctrl.
+            const bool internal = link->wiki || link->target.startsWith(QLatin1Char('#'));
             const Qt::KeyboardModifiers chord =
                 event->modifiers()
                 & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
-            if (ctrl || (anchor && chord == Qt::NoModifier)) {
+            if (ctrl || (internal && chord == Qt::NoModifier)) {
                 clearMultiCarets();
                 if (followLink(*link)) {
                     event->accept();
@@ -834,7 +836,7 @@ void Editor::mouseMoveEvent(QMouseEvent* event) {
     const QTextCursor hit = cursorForPosition(event->pos());
     if (const auto link = linkAt(hit.position())) {
         const bool ctrl = event->modifiers() & Qt::ControlModifier;
-        if (ctrl || link->target.startsWith(QLatin1Char('#'))) {
+        if (ctrl || link->wiki || link->target.startsWith(QLatin1Char('#'))) {
             viewport()->setCursor(Qt::PointingHandCursor);
             QTextEdit::mouseMoveEvent(event);
             return;
@@ -1708,11 +1710,19 @@ bool Editor::followLink(const LinkRef& link) {
         || link.target.startsWith(QLatin1String("mailto:"), Qt::CaseInsensitive)) {
         return QDesktopServices::openUrl(QUrl(link.target));
     }
-    return false;
+    // Anything else is a document reference. The editor has no idea where the
+    // file lives — that depends on the vault, if any — so the window resolves it.
+    bool handled = false;
+    emit documentLinkActivated(link.target, link.wiki, &handled);
+    return handled;
 }
 
 void Editor::jumpBack() {
     if (jumpStack_.isEmpty()) {
+        // Nothing left in this document: the window may still be able to go back
+        // to the file we followed a link from.
+        bool handled = false;
+        emit jumpBackExhausted(&handled);
         return;
     }
     const int pos = jumpStack_.takeLast();

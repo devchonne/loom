@@ -45,6 +45,13 @@ Settings Settings::load() {
         s.keyclick = tbl["keyclick"].value_or(s.keyclick);
         s.notesDirectory =
             QString::fromStdString(tbl["notes_directory"].value_or(s.notesDirectory.toStdString()));
+        if (const auto* vault = tbl["vault"].as_table()) {
+            s.vaultEnabled = (*vault)["enabled"].value_or(s.vaultEnabled);
+            s.vaultRoot = QString::fromStdString((*vault)["root"].value_or(s.vaultRoot.toStdString()));
+            s.vaultSidebarVisible = (*vault)["sidebar_visible"].value_or(s.vaultSidebarVisible);
+            s.vaultSidebarWidth =
+                qBound(140, int((*vault)["sidebar_width"].value_or(int64_t(s.vaultSidebarWidth))), 800);
+        }
         s.pdfTemplate =
             QString::fromStdString(tbl["pdf_template"].value_or(s.pdfTemplate.toStdString()));
         s.radioMiniPlayer = tbl["radio_mini_player"].value_or(s.radioMiniPlayer);
@@ -72,6 +79,12 @@ bool Settings::save(QString* error) const {
     tbl.insert("crt_wipe", crtWipe);
     tbl.insert("keyclick", keyclick);
     tbl.insert("notes_directory", notesDirectory.toStdString());
+    toml::table vault;
+    vault.insert("enabled", vaultEnabled);
+    vault.insert("root", vaultRoot.toStdString());
+    vault.insert("sidebar_visible", vaultSidebarVisible);
+    vault.insert("sidebar_width", int64_t(vaultSidebarWidth));
+    tbl.insert("vault", std::move(vault));
     tbl.insert("pdf_template", pdfTemplate.toStdString());
     tbl.insert("radio_mini_player", radioMiniPlayer);
     tbl.insert("radio_volume", radioVolume);
@@ -88,4 +101,18 @@ QString Settings::resolvedNotesDirectory() const {
     }
     return QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
         + QStringLiteral("/loom");
+}
+
+QString Settings::activeVaultRoot() const {
+    if (!vaultEnabled) {
+        return {};
+    }
+    QString root = vaultRoot.trimmed();
+    if (root.isEmpty()) {
+        return {};
+    }
+    if (root.startsWith(QLatin1Char('~'))) {
+        root = QDir::homePath() + root.mid(1);
+    }
+    return QFileInfo(root).absoluteFilePath();
 }

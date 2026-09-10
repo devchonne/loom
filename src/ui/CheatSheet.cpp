@@ -84,6 +84,20 @@ const RawEntry kRaw[] = {
     {"radio", "Ctrl+Alt+P", "radio play / pause"},
     {"radio", "Ctrl+Alt+S", "radio stop"},
 
+    {"vault", "Ctrl+E", "show / hide the vault tree"},
+    {"vault", "Ctrl+Shift+E", "open a note (quick switcher)"},
+    {"vault", "Ctrl+Shift+B", "backlinks to this note"},
+    {"vault", "Ctrl+Shift+V", "switch vault"},
+    {"vault", "[[note]]", "link to a note by name"},
+    {"vault", "[[note|label]]", "link with different link text"},
+    {"vault", "[[note#heading]]", "link straight to a heading"},
+    {"vault", "click a [[link]]", "follow it (creates the note if missing)"},
+    {"vault", "Alt+Left", "jump back, across files too"},
+    {"vault", "Alt+N / Alt+D (in tree)", "new note / new folder"},
+    {"vault", "Alt+R / Delete (in tree)", "rename / delete"},
+    {"vault", "right click (in tree)", "new / rename / delete / show in file manager"},
+    {"vault", "drag in tree", "move a note or folder"},
+
     {"slash", "/save, /saveas", "save / save as"},
     {"slash", "/open, /new, /close", "file and tab actions"},
     {"slash", "/rename", "rename current tab"},
@@ -110,6 +124,13 @@ const RawEntry kRaw[] = {
     {"slash", "/radio [play|pause|stop|add]", "radio player"},
     {"slash", "/radio mini 1|0", "footer mini player"},
     {"slash", "/radio vol 0-100", "radio volume"},
+    {"slash", "/vault [path]", "open a vault, or the note switcher"},
+    {"slash", "/vault tree 1|0", "show / hide the vault tree"},    {"slash", "/vault new [name]", "create a note in the vault"},
+    {"slash", "/vault folder <name>", "create a folder in the vault"},
+    {"slash", "/vault links", "backlinks to this note"},
+    {"slash", "/vault switch", "switch vault"},
+    {"slash", "/vault reveal", "show this note in the tree"},
+    {"slash", "/vault off", "turn the vault off"},
 };
 
 }  // namespace

@@ -11,6 +11,8 @@
 #include "core/SessionStore.h"
 #include "core/SlashCommand.h"
 #include "core/StationLibrary.h"
+#include "core/Vault.h"
+#include "core/VaultRegistry.h"
 #include "markdown/DocumentOutline.h"
 #include "markdown/TableFormat.h"
 #include "theme/Fonts.h"
@@ -28,10 +30,13 @@
 #include "ui/TabSwitcher.h"
 #include "ui/ThemedDialogs.h"
 #include "ui/ThemeSwitcher.h"
+#include "ui/VaultOverlay.h"
+#include "ui/VaultSidebar.h"
 #include "ui/WeatherSound.h"
 
 #include <QApplication>
 #include <QCloseEvent>
+#include <QDesktopServices>
 #include <QDir>
 #include <QEvent>
 #include <QFile>
@@ -47,6 +52,7 @@
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTimer>
+#include <QUrl>
 #include <QVBoxLayout>
 
 MainWindow::MainWindow(BufferManager* buffers, ThemeManager* themes, Settings settings, QWidget* parent)
@@ -73,6 +79,8 @@ MainWindow::MainWindow(BufferManager* buffers, ThemeManager* themes, Settings se
     , directory_(new RadioDirectory(this))
     , radio_(new RadioPlayer(this))
     , radioOverlay_(new RadioOverlay(stations_, directory_, this))
+    , vault_(new Vault(this))
+    , vaults_(new VaultRegistry(this))
     , zen_(settings_.zenByDefault) {
     setWindowTitle(QStringLiteral("loom"));
     resize(960, 700);
@@ -86,13 +94,27 @@ MainWindow::MainWindow(BufferManager* buffers, ThemeManager* themes, Settings se
 
     auto* root = new QWidget(this);
     root->setObjectName(QStringLiteral("loomRoot"));
+    // The editor column: tabs, the compare splitter, find bar and footer. This
+    // is the whole window when there is no vault sidebar.
+    auto* column = new QWidget(root);
+    auto* columnLayout = new QVBoxLayout(column);
+    columnLayout->setContentsMargins(0, 0, 0, 0);
+    columnLayout->setSpacing(0);
+    columnLayout->addWidget(tabs_);
+    columnLayout->addWidget(splitter_, 1);
+    columnLayout->addWidget(findBar_);
+    columnLayout->addWidget(status_);
+
+    // An outer splitter so the sidebar can be resized. splitter_ cannot be
+    // reused for this: it belongs to compare mode.
+    shell_ = new QSplitter(Qt::Horizontal, root);
+    shell_->setChildrenCollapsible(false);
+    shell_->addWidget(column);
+
     auto* layout = new QVBoxLayout(root);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
-    layout->addWidget(tabs_);
-    layout->addWidget(splitter_, 1);
-    layout->addWidget(findBar_);
-    layout->addWidget(status_);
+    layout->addWidget(shell_, 1);
     setCentralWidget(root);
 
     cheat_->setParent(root);
@@ -207,6 +229,25 @@ MainWindow::MainWindow(BufferManager* buffers, ThemeManager* themes, Settings se
                     *accepted = dispatchSlash(name, arg);
                 }
             });
+    for (Editor* editor : {editor_, editorRight_}) {
+        connect(editor, &Editor::documentLinkActivated, this,
+                [this](const QString& target, bool wiki, bool* handled) {
+                    if (handled) {
+                        *handled = followDocumentLink(target, wiki);
+                    }
+                });
+        connect(editor, &Editor::jumpBackExhausted, this, [this](bool* handled) {
+            if (handled) {
+                *handled = jumpBackAcrossFiles();
+            }
+        });
+    }
+    connect(vault_, &Vault::indexChanged, this, [this]() {
+        if (vaultSidebar_ && vaultSidebar_->isVisible()) {
+            Buffer* buffer = buffers_->current();
+            vaultSidebar_->syncCurrentPath(buffer ? buffer->path() : QString());
+        }
+    });
 
     wireShortcuts();
     applySettings(settings_);
@@ -215,6 +256,8 @@ MainWindow::MainWindow(BufferManager* buffers, ThemeManager* themes, Settings se
     stations_->load();
     radioOverlay_->setPlayingStation(settings_.radioLastStation);
     syncRadioChrome();
+    // Only touches vaults.json when the feature is actually on.
+    applyVaultSettings();
     if (buffers_->count() == 0) {
         buffers_->createScratch();
     } else {
@@ -225,6 +268,20 @@ MainWindow::MainWindow(BufferManager* buffers, ThemeManager* themes, Settings se
     tabs_->setVisible(!zen_);
     status_->setVisible(!zen_);
     persistSession();
+}
+
+MainWindow::~MainWindow() {
+    // The editors hold highlighters attached to documents the BufferManager
+    // owns, and QSyntaxHighlighter re-enters its document while detaching. Let
+    // go of the documents first so that teardown cannot run buffer signal
+    // handlers against half-destroyed widgets.
+    editor_->unbindDocument();
+    editorRight_->unbindDocument();
+    // Drops the vault's watcher and the sidebar's file-gathering worker before
+    // the event loop is gone.
+    vault_->setRoot(QString());
+    delete vaultSidebar_;
+    vaultSidebar_ = nullptr;
 }
 
 void MainWindow::wireShortcuts() {
@@ -342,6 +399,12 @@ void MainWindow::wireShortcuts() {
         switcher_->open();
     });
     add(QKeySequence(QStringLiteral("Ctrl+Shift+O")), [this]() { openOutline(); });
+    // Vault. Silent no-ops with the feature off, and the sidebar toggle leaves
+    // no trace in the chrome when hidden.
+    add(QKeySequence(QStringLiteral("Ctrl+E")), [this]() { toggleVaultSidebar(); });
+    add(QKeySequence(QStringLiteral("Ctrl+Shift+E")), [this]() { openVaultNotes(); });
+    add(QKeySequence(QStringLiteral("Ctrl+Shift+B")), [this]() { openVaultBacklinks(); });
+    add(QKeySequence(QStringLiteral("Ctrl+Shift+V")), [this]() { openVaultSwitcher(); });
     add(QKeySequence(QStringLiteral("Ctrl+Q")), [this]() { close(); });
     add(QKeySequence(Qt::Key_Escape), [this]() {
         if (cheat_->isVisible()) {
@@ -356,6 +419,8 @@ void MainWindow::wireShortcuts() {
             pdfExport_->hide();
         } else if (radioOverlay_->isVisible()) {
             radioOverlay_->dismiss();
+        } else if (vaultOverlay_ && vaultOverlay_->isVisible()) {
+            vaultOverlay_->hide();
         } else if (findBar_->isVisible()) {
             findBar_->hide();
             focusedEditor()->setFocus();
@@ -393,6 +458,9 @@ void MainWindow::bindCurrentBuffer() {
     refreshChrome();
     editor_->setFocus();
     tabs_->update();
+    if (vaultSidebar_ && vaultSidebar_->isVisible()) {
+        vaultSidebar_->syncCurrentPath(buffer->path());
+    }
 }
 
 void MainWindow::bindBufferToEditor(Buffer* buffer, Editor* editor) {
@@ -419,6 +487,8 @@ void MainWindow::restorePrefs(int zoom, bool zen, const QByteArray& geometry) {
     status_->setVisible(!zen_);
     editor_->setZen(zen_);
     editorRight_->setZen(zen_);
+    // A restored zen session must not bring the tree back with it.
+    setVaultSidebarVisible(settings_.vaultSidebarVisible);
 }
 
 void MainWindow::captureViewState() {
@@ -486,6 +556,12 @@ void MainWindow::applyTheme() {
     pdfExport_->setTheme(theme);
     radioOverlay_->setTheme(theme);
     wipe_->setTheme(theme);
+    if (vaultSidebar_) {
+        vaultSidebar_->setTheme(theme);
+    }
+    if (vaultOverlay_) {
+        vaultOverlay_->setTheme(theme);
+    }
     if (comparing_) {
         refreshCompareDiff();
     }
@@ -504,6 +580,12 @@ void MainWindow::applySettings(const Settings& settings) {
     themeSwitcher_->setChromeFont(chrome);
     pdfExport_->setChromeFont(chrome);
     radioOverlay_->setChromeFont(chrome);
+    if (vaultSidebar_) {
+        vaultSidebar_->setChromeFont(chrome);
+    }
+    if (vaultOverlay_) {
+        vaultOverlay_->setChromeFont(chrome);
+    }
     editor_->applySettings(settings_);
     editorRight_->applySettings(settings_);
     radio_->setVolume(settings_.radioVolume);
@@ -778,6 +860,9 @@ void MainWindow::toggleZen() {
     status_->setVisible(!zen_);
     editor_->setZen(zen_);
     editorRight_->setZen(zen_);
+    // Zen means nothing but the text, so the sidebar goes with the tabs and the
+    // footer. The setting is untouched, so leaving zen brings it back.
+    setVaultSidebarVisible(settings_.vaultSidebarVisible);
     persistSession();
 }
 
@@ -785,6 +870,7 @@ void MainWindow::openSettings() {
     SettingsDialog dialog(settings_, this);
     if (dialog.exec() == QDialog::Accepted) {
         applySettings(dialog.result());
+        applyVaultSettings();
         settings_.save();
     }
 }
@@ -999,6 +1085,434 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
     return QMainWindow::eventFilter(watched, event);
 }
 
+// ---- vault ------------------------------------------------------------------
+
+void MainWindow::applyVaultSettings() {
+    const QString root = settings_.activeVaultRoot();
+    if (root.isEmpty()) {
+        // Switched off: drop the index and the watcher, and take the sidebar out
+        // of the layout entirely rather than leaving an empty strip behind.
+        vault_->setRoot(QString());
+        if (vaultSidebar_) {
+            vaultSidebar_->setRoot(QString());
+            vaultSidebar_->hide();
+        }
+        return;
+    }
+
+    if (vaults_->isEmpty()) {
+        vaults_->load();
+    }
+    vaults_->remember(root);
+    vault_->setRoot(root);
+    setVaultSidebarVisible(settings_.vaultSidebarVisible);
+}
+
+void MainWindow::setVaultRoot(const QString& root) {
+    const QString path = VaultRegistry::normalize(root);
+    if (path.isEmpty() || !QFileInfo(path).isDir()) {
+        return;
+    }
+    settings_.vaultEnabled = true;
+    settings_.vaultRoot = path;
+    settings_.save();
+    applyVaultSettings();
+    if (vaultSidebar_ && vaultSidebar_->isVisible()) {
+        vaultSidebar_->setRoot(path);
+    }
+    refreshChrome();
+}
+
+void MainWindow::setVaultSidebarVisible(bool visible) {
+    // Zen wins: nothing but the text, whatever the vault setting says. Leaving
+    // zen re-reads the setting, so the tree comes back.
+    const bool wanted = visible && vault_->isOpen() && !zen_;
+    if (!wanted) {
+        if (vaultSidebar_) {
+            vaultSidebar_->hide();
+        }
+        return;
+    }
+
+    if (!vaultSidebar_) {
+        // First use: build it now, not at startup, so a loom without a vault
+        // never pays for it.
+        vaultSidebar_ = new VaultSidebar(vault_, this);
+        shell_->insertWidget(0, vaultSidebar_);
+        vaultSidebar_->setTheme(themes_->theme());
+        vaultSidebar_->setChromeFont(Fonts::chrome(settings_, 10));
+        connect(vaultSidebar_, &VaultSidebar::openRequested, this,
+                [this](const QString& path) { openPathAtLine(path, 0); });
+        connect(vaultSidebar_, &VaultSidebar::pathMoved, this, &MainWindow::retargetBuffers);
+        connect(vaultSidebar_, &VaultSidebar::pathDeleted, this, [this](const QString&) {
+            refreshChrome();
+        });
+        connect(vaultSidebar_, &VaultSidebar::closeRequested, this,
+                [this]() { setVaultSidebarVisible(false); focusedEditor()->setFocus(); });
+    }
+    vaultSidebar_->setRoot(vault_->root());
+    vaultSidebar_->show();
+    const int width = qBound(140, settings_.vaultSidebarWidth, qMax(200, this->width() / 2));
+    shell_->setSizes({width, qMax(200, this->width() - width)});
+    Buffer* buffer = buffers_->current();
+    vaultSidebar_->syncCurrentPath(buffer ? buffer->path() : QString());
+}
+
+void MainWindow::toggleVaultSidebar() {
+    if (!vault_->isOpen() || zen_) {
+        // No vault configured, or zen mode: the key does nothing at all rather
+        // than advertising a feature that is off or hinting at chrome that zen
+        // deliberately removed.
+        return;
+    }
+    const bool next = !(vaultSidebar_ && vaultSidebar_->isVisible());
+    if (!next && vaultSidebar_) {
+        // Remember the width the user dragged to before it disappears.
+        const QList<int> sizes = shell_->sizes();
+        if (!sizes.isEmpty() && sizes.first() > 0) {
+            settings_.vaultSidebarWidth = sizes.first();
+        }
+    }
+    settings_.vaultSidebarVisible = next;
+    settings_.save();
+    setVaultSidebarVisible(next);
+    if (next && vaultSidebar_) {
+        vaultSidebar_->focusTree();
+    } else {
+        focusedEditor()->setFocus();
+    }
+}
+
+// Builds the overlay on first use and returns it. Split out because three
+// entry points need it, and one of them (the vault switcher) has to work while
+// no vault is open.
+VaultOverlay* MainWindow::ensureVaultOverlay() {
+    if (!vaultOverlay_) {
+        vaultOverlay_ = new VaultOverlay(centralWidget());
+        vaultOverlay_->setTheme(themes_->theme());
+        vaultOverlay_->setChromeFont(Fonts::chrome(settings_, 10));
+        connect(vaultOverlay_, &VaultOverlay::pathChosen, this, &MainWindow::openPathAtLine);
+        connect(vaultOverlay_, &VaultOverlay::vaultChosen, this, &MainWindow::setVaultRoot);
+    }
+    vaultOverlay_->setGeometry(centralWidget()->rect());
+    return vaultOverlay_;
+}
+
+void MainWindow::openVaultNotes() {
+    if (!vault_->isOpen()) {
+        return;
+    }
+    vault_->refresh();
+    ensureVaultOverlay()->openNotes(vault_->notes());
+}
+
+void MainWindow::openVaultBacklinks() {
+    Buffer* buffer = buffers_->current();
+    if (!vault_->isOpen() || !buffer || !vault_->contains(buffer->path())) {
+        return;
+    }
+    // Backlinks are the only vault operation that reads file contents, so it is
+    // computed here on demand rather than kept warm in the background.
+    const auto links = vault_->backlinks(buffer->path());
+    ensureVaultOverlay()->openBacklinks(links,
+                                       QFileInfo(buffer->path()).completeBaseName());
+}
+
+void MainWindow::openVaultSwitcher() {
+    if (vaults_->isEmpty()) {
+        vaults_->load();
+    }
+    if (vaults_->isEmpty()) {
+        chooseVaultFolder();
+        return;
+    }
+    QVector<QPair<QString, QString>> rows;
+    for (const VaultEntry& entry : vaults_->entries()) {
+        rows.push_back({entry.name, entry.root});
+    }
+    // Must work with no vault open: this is how the feature gets turned back on.
+    ensureVaultOverlay()->openVaults(rows, vault_->root());
+}
+
+void MainWindow::chooseVaultFolder() {
+    const QString start = vault_->isOpen() ? vault_->root() : settings_.resolvedNotesDirectory();
+    const QString dir =
+        ThemedDialogs::getExistingDirectory(this, QStringLiteral("open vault"), start);
+    if (dir.isEmpty()) {
+        return;
+    }
+    setVaultRoot(dir);
+}
+
+void MainWindow::openPathAtLine(const QString& path, int line) {
+    if (path.isEmpty()) {
+        return;
+    }
+    // Reuse an open tab when there is one, so following the same link twice does
+    // not pile up duplicates.
+    int existing = -1;
+    for (int i = 0; i < buffers_->count(); ++i) {
+        if (Buffer* buffer = buffers_->at(i);
+            buffer && !buffer->path().isEmpty()
+            && QFileInfo(buffer->path()) == QFileInfo(path)) {
+            existing = i;
+            break;
+        }
+    }
+    if (existing >= 0) {
+        buffers_->setCurrentIndex(existing);
+    } else {
+        openPaths({path});
+    }
+
+    if (line > 0) {
+        Editor* editor = focusedEditor();
+        if (QTextDocument* doc = editor->document()) {
+            const QTextBlock block = doc->findBlockByNumber(line - 1);
+            if (block.isValid()) {
+                QTextCursor cursor(block);
+                editor->setTextCursor(cursor);
+                editor->ensureCursorVisible();
+            }
+        }
+    }
+    focusedEditor()->setFocus();
+    if (vaultSidebar_ && vaultSidebar_->isVisible()) {
+        vaultSidebar_->syncCurrentPath(path);
+    }
+}
+
+bool MainWindow::followDocumentLink(const QString& target, bool wiki) {
+    Buffer* buffer = buffers_->current();
+    const QString from = buffer ? buffer->path() : QString();
+
+    QString name;
+    QString anchor;
+    Vault::splitAnchor(target, &name, &anchor);
+
+    // Vault::resolve falls back to a path relative to this document whenever the
+    // vault is closed or the document sits outside it, so a [[link]] written
+    // inside a vault still resolves after the feature is switched off.
+    QString path = vault_->resolve(target, from, wiki);
+
+    // Only ever open something loom can edit as text. Without this, an inline
+    // link to an image or any other asset would be decoded as UTF-8 into a named
+    // buffer, and autosave would then write the mangled text back over the
+    // original file.
+    if (!path.isEmpty() && !Vault::isNote(path)) {
+        return QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+    }
+
+    if (path.isEmpty() && wiki) {
+        // An unresolved wiki target is an invitation, the way it is in Obsidian:
+        // create the note and open it. Only ever inside a vault, so a plain
+        // scratchpad never grows files behind the user's back.
+        if (!vault_->isOpen() || !vault_->contains(from)) {
+            return false;
+        }
+        const QString wanted = vault_->newNotePath(target, from);
+        if (wanted.isEmpty()) {
+            return false;
+        }
+        const QFileInfo info(wanted);
+        QString err;
+        path = vault_->createNote(info.absolutePath(), info.fileName(), &err);
+        if (path.isEmpty()) {
+            return false;
+        }
+        vault_->refresh();
+    }
+    if (path.isEmpty()) {
+        return false;
+    }
+
+    if (buffer && !from.isEmpty() && QFileInfo(from) != QFileInfo(path)) {
+        fileJumpStack_.append({from, focusedEditor()->textCursor().position()});
+    }
+    openPathAtLine(path, 0);
+
+    if (!anchor.isEmpty()) {
+        // "[[Note#Heading]]": land on the heading rather than the top of the file.
+        Editor* editor = focusedEditor();
+        if (QTextDocument* doc = editor->document()) {
+            const auto entries = DocumentOutline::build(doc->toPlainText().split(QLatin1Char('\n')));
+            for (const OutlineEntry& entry : entries) {
+                if (entry.slug.compare(anchor.toLower(), Qt::CaseInsensitive) != 0) {
+                    continue;
+                }
+                const QTextBlock block = doc->findBlockByNumber(entry.blockNumber);
+                if (block.isValid()) {
+                    QTextCursor cursor(block);
+                    editor->setTextCursor(cursor);
+                    editor->ensureCursorVisible();
+                }
+                break;
+            }
+        }
+    }
+    return true;
+}
+
+bool MainWindow::jumpBackAcrossFiles() {
+    while (!fileJumpStack_.isEmpty()) {
+        const auto entry = fileJumpStack_.takeLast();
+        if (!QFileInfo::exists(entry.first)) {
+            continue;
+        }
+        openPathAtLine(entry.first, 0);
+        Editor* editor = focusedEditor();
+        if (QTextDocument* doc = editor->document()) {
+            QTextCursor cursor(doc);
+            cursor.setPosition(qBound(0, entry.second, qMax(0, doc->characterCount() - 1)));
+            editor->setTextCursor(cursor);
+            editor->ensureCursorVisible();
+        }
+        return true;
+    }
+    return false;
+}
+
+void MainWindow::retargetBuffers(const QString& from, const QString& to) {
+    const QFileInfo fromInfo(from);
+    for (int i = 0; i < buffers_->count(); ++i) {
+        Buffer* buffer = buffers_->at(i);
+        if (!buffer || buffer->path().isEmpty()) {
+            continue;
+        }
+        const QString path = buffer->path();
+        if (QFileInfo(path) == fromInfo) {
+            buffer->setPath(to);
+            buffer->setTitle(QFileInfo(to).fileName());
+            continue;
+        }
+        // A renamed folder takes every open file under it along.
+        if (path.startsWith(from + QLatin1Char('/'))) {
+            const QString moved = to + path.mid(from.size());
+            buffer->setPath(moved);
+            buffer->setTitle(QFileInfo(moved).fileName());
+        }
+    }
+    persistSession();
+    refreshChrome();
+}
+
+bool MainWindow::dispatchVaultSlash(const QString& arg) {
+    const QString trimmed = arg.trimmed();
+    const int space = trimmed.indexOf(QLatin1Char(' '));
+    const QString verb = space > 0 ? trimmed.left(space) : trimmed;
+    const QString rest = space > 0 ? trimmed.mid(space + 1).trimmed() : QString();
+
+    if (verb.isEmpty() || verb == QLatin1String("open")) {
+        if (!rest.isEmpty()) {
+            setVaultRoot(rest);
+            return true;
+        }
+        if (vault_->isOpen()) {
+            openVaultNotes();
+        } else {
+            chooseVaultFolder();
+        }
+        return true;
+    }
+    if (verb == QLatin1String("tree") || verb == QLatin1String("sidebar")) {
+        if (!vault_->isOpen()) {
+            return false;
+        }
+        switch (parseOnOff(rest)) {
+        case OnOff::Default:
+            toggleVaultSidebar();
+            return true;
+        case OnOff::On:
+            settings_.vaultSidebarVisible = true;
+            settings_.save();
+            setVaultSidebarVisible(true);
+            return true;
+        case OnOff::Off:
+            settings_.vaultSidebarVisible = false;
+            settings_.save();
+            setVaultSidebarVisible(false);
+            return true;
+        case OnOff::Invalid:
+            return false;
+        }
+    }
+    if (verb == QLatin1String("off") || verb == QLatin1String("close")) {
+        settings_.vaultEnabled = false;
+        settings_.save();
+        applyVaultSettings();
+        refreshChrome();
+        return true;
+    }
+    if (verb == QLatin1String("switch") || verb == QLatin1String("list")) {
+        openVaultSwitcher();
+        return true;
+    }
+    if (verb == QLatin1String("links") || verb == QLatin1String("backlinks")) {
+        if (!vault_->isOpen()) {
+            return false;
+        }
+        openVaultBacklinks();
+        return true;
+    }
+    if (verb == QLatin1String("new")) {
+        if (!vault_->isOpen()) {
+            return false;
+        }
+        Buffer* buffer = buffers_->current();
+        const QString from = buffer ? buffer->path() : QString();
+        const QString dir = vault_->contains(from) ? QFileInfo(from).absolutePath() : vault_->root();
+        if (rest.isEmpty()) {
+            if (vaultSidebar_ && vaultSidebar_->isVisible()) {
+                vaultSidebar_->newNoteInSelection();
+                return true;
+            }
+            return false;
+        }
+        QString err;
+        const QString path = vault_->createNote(dir, rest, &err);
+        if (path.isEmpty()) {
+            return false;
+        }
+        vault_->refresh();
+        openPathAtLine(path, 0);
+        return true;
+    }
+    if (verb == QLatin1String("folder")) {
+        if (!vault_->isOpen() || rest.isEmpty()) {
+            return false;
+        }
+        QString err;
+        return !vault_->createFolder(vault_->root(), rest, &err).isEmpty();
+    }
+    if (verb == QLatin1String("reveal")) {
+        if (!vault_->isOpen()) {
+            return false;
+        }
+        Buffer* buffer = buffers_->current();
+        if (!buffer || !vault_->contains(buffer->path())) {
+            return false;
+        }
+        settings_.vaultSidebarVisible = true;
+        settings_.save();
+        setVaultSidebarVisible(true);
+        // Zen refuses to build the tree at all, so there may be nothing to
+        // reveal into. The setting is saved either way, so leaving zen shows it.
+        if (!vaultSidebar_) {
+            return false;
+        }
+        vaultSidebar_->revealPath(buffer->path());
+        return true;
+    }
+    if (verb == QLatin1String("refresh")) {
+        if (!vault_->isOpen()) {
+            return false;
+        }
+        vault_->refresh();
+        return true;
+    }
+    return false;
+}
+
 bool MainWindow::dispatchSlash(const QString& name, const QString& arg) {
     auto weather = [this](WeatherMode mode, const QString& value) {
         switch (parseOnOff(value)) {
@@ -1179,6 +1693,9 @@ bool MainWindow::dispatchSlash(const QString& name, const QString& arg) {
         openSettings();
         return true;
     }
+    if (name == QLatin1String("vault")) {
+        return dispatchVaultSlash(arg);
+    }
     if (name == QLatin1String("help") || name == QLatin1String("keys")) {
         cheat_->setGeometry(centralWidget()->rect());
         cheat_->toggle();
@@ -1330,6 +1847,15 @@ void MainWindow::persistSession() {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
+    // Remember the width the sidebar was dragged to, so it comes back the same.
+    if (vaultSidebar_ && vaultSidebar_->isVisible()) {
+        const QList<int> sizes = shell_->sizes();
+        if (!sizes.isEmpty() && sizes.first() > 0
+            && sizes.first() != settings_.vaultSidebarWidth) {
+            settings_.vaultSidebarWidth = sizes.first();
+            settings_.save();
+        }
+    }
     persistSession();
     QMainWindow::closeEvent(event);
 }
@@ -1356,6 +1882,9 @@ void MainWindow::layoutOverlays() {
         pdfExport_->setGeometry(r);
         radioOverlay_->setGeometry(r);
         wipe_->setGeometry(r);
+        if (vaultOverlay_) {
+            vaultOverlay_->setGeometry(r);
+        }
     }
 }
 

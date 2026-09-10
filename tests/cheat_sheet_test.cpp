@@ -90,3 +90,50 @@ TEST(CheatSheetCatalog, NoBlankOrDuplicateRows) {
         seen.append(id);
     }
 }
+
+// Ctrl+K is the only discovery surface loom has, so every vault shortcut has to
+// be listed there or the feature is effectively invisible once enabled.
+TEST(CheatSheetCatalog, VaultSectionListsEveryVaultShortcut) {
+    const QStringList sections = ShortcutCatalog::sections();
+    ASSERT_TRUE(sections.contains(QStringLiteral("vault")));
+
+    const auto rows = ShortcutCatalog::search(QString(), QStringLiteral("vault"));
+    QStringList keys;
+    for (const ShortcutEntry& entry : rows) {
+        keys << entry.keys;
+    }
+    // The four bound key sequences, exactly as wireShortcuts() registers them.
+    for (const QString& key : {QStringLiteral("Ctrl+E"), QStringLiteral("Ctrl+Shift+E"),
+                               QStringLiteral("Ctrl+Shift+B"), QStringLiteral("Ctrl+Shift+V")}) {
+        EXPECT_TRUE(keys.contains(key))
+            << key.toStdString() << " missing from the vault section: "
+            << keys.join(QStringLiteral(", ")).toStdString();
+    }
+    // And the wikilink syntax, which is the other half of using a vault.
+    EXPECT_GT(ShortcutCatalog::count(QStringLiteral("[[")), 0);
+}
+
+// The vault rows must also be reachable by the words someone would actually
+// type, not just by their key chord.
+TEST(CheatSheetCatalog, VaultRowsAreSearchableByName) {
+    for (const QString& query : {QStringLiteral("vault"), QStringLiteral("tree"),
+                                 QStringLiteral("backlinks"), QStringLiteral("note")}) {
+        EXPECT_GT(ShortcutCatalog::count(query), 0) << query.toStdString();
+    }
+}
+
+// Slash commands are documented in the slash tab, so /vault belongs there too.
+TEST(CheatSheetCatalog, VaultSlashCommandsAreDocumented) {
+    const auto rows = ShortcutCatalog::search(QStringLiteral("/vault"), QStringLiteral("slash"));
+    EXPECT_GE(rows.size(), 5);
+}
+
+// A shortcut that uses a key the user finds awkward should not creep back in.
+// Backslash chords in particular are hard to reach on many layouts, so the table
+// alignment binding is the only one allowed to use it.
+TEST(CheatSheetCatalog, VaultShortcutsAvoidBackslashChords) {
+    for (const ShortcutEntry& entry : ShortcutCatalog::search(QString(), QStringLiteral("vault"))) {
+        EXPECT_FALSE(entry.keys.contains(QLatin1Char('\\')))
+            << entry.keys.toStdString() << " / " << entry.action.toStdString();
+    }
+}

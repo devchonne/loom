@@ -22,6 +22,7 @@ enum class SpanKind : std::uint8_t {
     Code,
     LinkText,
     AnchorLinkText,
+    WikiLinkText,
     LinkUrl,
     Quote,
     ListMarker,
@@ -63,6 +64,10 @@ struct LinkRef {
     int start = 0;
     int length = 0;
     QString target;
+    // [[wikilink]] rather than [text](target). Resolved by name inside a vault
+    // and as a relative path everywhere else, so it never dies when the vault is
+    // switched off.
+    bool wiki = false;
 };
 
 struct ParseResult {

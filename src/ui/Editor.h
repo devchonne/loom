@@ -70,6 +70,14 @@ signals:
     void cursorInfoChanged();
     void slashCommand(const QString& name, const QString& arg, bool* accepted);
     void linkActivated(const QString& target);
+    // A link the editor cannot resolve on its own: a [[wikilink]], or a
+    // [text](path) pointing at another file. The window decides what it means
+    // (vault lookup, or a path relative to this document) and sets handled.
+    // Following the existing slashCommand precedent for out-params.
+    void documentLinkActivated(const QString& target, bool wiki, bool* handled);
+    // Jump history is per document, so once it runs dry the window takes over
+    // and walks back across files.
+    void jumpBackExhausted(bool* handled);
 
 protected:
     void paintEvent(QPaintEvent* event) override;

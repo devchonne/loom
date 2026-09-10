@@ -30,6 +30,8 @@ set(LOOM_SOURCES
     src/core/Settings.cpp
     src/core/SlashCommand.cpp
     src/core/StationLibrary.cpp
+    src/core/Vault.cpp
+    src/core/VaultRegistry.cpp
     src/markdown/CodeSyntax.cpp
     src/markdown/DocumentOutline.cpp
     src/markdown/MarkdownHighlighter.cpp
@@ -55,6 +57,8 @@ set(LOOM_SOURCES
     src/ui/ThemedDialogs.cpp
     src/ui/TabSwitcher.cpp
     src/ui/ThemeSwitcher.cpp
+    src/ui/VaultOverlay.cpp
+    src/ui/VaultSidebar.cpp
     src/ui/Weather.cpp
     src/ui/WeatherSound.cpp
 )
@@ -112,6 +116,8 @@ add_executable(loom_tests
     tests/pdf_export_test.cpp
     tests/radio_library_test.cpp
     tests/radio_directory_test.cpp
+    tests/vault_test.cpp
+    tests/vault_window_test.cpp
 )
 target_link_libraries(loom_tests PRIVATE loom_lib GTest::gtest)
 target_compile_options(loom_tests PRIVATE -Wall -Wextra -Wpedantic)

@@ -3,6 +3,9 @@
 #include "core/Settings.h"
 
 #include <QMainWindow>
+#include <QPair>
+#include <QString>
+#include <QVector>
 
 class Buffer;
 class BufferManager;
@@ -21,6 +24,10 @@ class TabStrip;
 class TabSwitcher;
 class ThemeManager;
 class ThemeSwitcher;
+class Vault;
+class VaultOverlay;
+class VaultRegistry;
+class VaultSidebar;
 class WeatherSound;
 class QSplitter;
 class QTimer;
@@ -31,6 +38,7 @@ class MainWindow : public QMainWindow {
 public:
     MainWindow(BufferManager* buffers, ThemeManager* themes, Settings settings,
                QWidget* parent = nullptr);
+    ~MainWindow() override;
 
     void openPaths(const QStringList& paths);
     void newScratchTab();
@@ -86,6 +94,24 @@ private:
     void openRadio();
     void syncRadioChrome();
     bool dispatchRadioSlash(const QString& arg);
+    // Vault. Every one of these is a no-op unless a vault is open, which is what
+    // keeps the feature free when it is switched off.
+    void applyVaultSettings();
+    void toggleVaultSidebar();
+    void setVaultSidebarVisible(bool visible);
+    void openVaultNotes();
+    VaultOverlay* ensureVaultOverlay();
+    void openVaultBacklinks();
+    void openVaultSwitcher();
+    void chooseVaultFolder();
+    void setVaultRoot(const QString& root);
+    // Resolves a wiki or file link and opens it, creating the note when a wiki
+    // target does not exist yet. Returns false when nothing could be done.
+    bool followDocumentLink(const QString& target, bool wiki);
+    bool jumpBackAcrossFiles();
+    void openPathAtLine(const QString& path, int line);
+    void retargetBuffers(const QString& from, const QString& to);
+    bool dispatchVaultSlash(const QString& arg);
 
     BufferManager* buffers_ = nullptr;
     ThemeManager* themes_ = nullptr;
@@ -111,10 +137,21 @@ private:
     RadioDirectory* directory_ = nullptr;
     RadioPlayer* radio_ = nullptr;
     RadioOverlay* radioOverlay_ = nullptr;
+    // Declared before vaultSidebar_ / vaultOverlay_, which take it.
+    Vault* vault_ = nullptr;
+    VaultRegistry* vaults_ = nullptr;
+    // Both are built lazily on first use: with the vault off, neither widget
+    // exists, so there is nothing to hide and nothing to lay out.
+    VaultSidebar* vaultSidebar_ = nullptr;
+    VaultOverlay* vaultOverlay_ = nullptr;
+    QSplitter* shell_ = nullptr;
     bool zen_ = false;
     bool shown_ = false;
     bool comparing_ = false;
     int compareArmed_ = -1;
     Buffer* compareLeftBuf_ = nullptr;
     Buffer* compareRightBuf_ = nullptr;
+    // Cross-file jump history for Alt+Left, holding (path, cursor) pairs. Only
+    // grows when a link actually crosses a file boundary.
+    QVector<QPair<QString, int>> fileJumpStack_;
 };

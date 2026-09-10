@@ -21,7 +21,8 @@ SettingsDialog::SettingsDialog(const Settings& settings, QWidget* parent)
     , result_(settings) {
     setWindowTitle(QStringLiteral("settings"));
     setModal(true);
-    resize(460, 420);
+    // Taller now that the vault section is here.
+    resize(460, 520);
 
     auto* form = new QFormLayout();
     auto* bodyFont = new QComboBox(this);
@@ -88,6 +89,30 @@ SettingsDialog::SettingsDialog(const Settings& settings, QWidget* parent)
     notesLayout->addWidget(notes, 1);
     notesLayout->addWidget(browse);
 
+    // Vault. The whole feature hangs off this one checkbox: unchecked, loom
+    // behaves exactly as it did before vaults existed, and the folder row is
+    // disabled so it is obvious the path is inert rather than merely unset.
+    auto* vaultEnabled = new QCheckBox(QStringLiteral("enable vault"), this);
+    vaultEnabled->setChecked(settings.vaultEnabled);
+    auto* vaultRoot = new QLineEdit(settings.vaultRoot, this);
+    vaultRoot->setPlaceholderText(QStringLiteral("folder to use as the vault"));
+    auto* vaultBrowse = new QPushButton(QStringLiteral("…"), this);
+    vaultBrowse->setFixedWidth(32);
+    auto* vaultRow = new QWidget(this);
+    auto* vaultLayout = new QHBoxLayout(vaultRow);
+    vaultLayout->setContentsMargins(0, 0, 0, 0);
+    vaultLayout->addWidget(vaultRoot, 1);
+    vaultLayout->addWidget(vaultBrowse);
+    auto* vaultSidebar = new QCheckBox(QStringLiteral("show vault tree (ctrl+e)"), this);
+    vaultSidebar->setChecked(settings.vaultSidebarVisible);
+
+    auto syncVaultRow = [vaultRow, vaultSidebar](bool on) {
+        vaultRow->setEnabled(on);
+        vaultSidebar->setEnabled(on);
+    };
+    syncVaultRow(settings.vaultEnabled);
+    connect(vaultEnabled, &QCheckBox::toggled, this, syncVaultRow);
+
     form->addRow(QStringLiteral("body font"), bodyFont);
     form->addRow(QStringLiteral("chrome font"), chromeFont);
     form->addRow(QStringLiteral("size"), size);
@@ -99,6 +124,9 @@ SettingsDialog::SettingsDialog(const Settings& settings, QWidget* parent)
     form->addRow(autosave);
     form->addRow(zen);
     form->addRow(QStringLiteral("notes dir"), notesRow);
+    form->addRow(vaultEnabled);
+    form->addRow(QStringLiteral("vault dir"), vaultRow);
+    form->addRow(vaultSidebar);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     auto* root = new QVBoxLayout(this);
@@ -113,8 +141,17 @@ SettingsDialog::SettingsDialog(const Settings& settings, QWidget* parent)
         }
     });
 
+    connect(vaultBrowse, &QPushButton::clicked, this, [this, vaultRoot]() {
+        const QString dir = ThemedDialogs::getExistingDirectory(
+            this, QStringLiteral("vault directory"), vaultRoot->text());
+        if (!dir.isEmpty()) {
+            vaultRoot->setText(dir);
+        }
+    });
+
     connect(buttons, &QDialogButtonBox::accepted, this,
-            [this, bodyFont, chromeFont, size, lineHeight, theme, scan, blockCaret, crt, autosave, zen, notes]() {
+            [this, bodyFont, chromeFont, size, lineHeight, theme, scan, blockCaret, crt, autosave,
+             zen, notes, vaultEnabled, vaultRoot, vaultSidebar]() {
                 result_.bodyFont = bodyFont->currentText();
                 result_.chromeFont = chromeFont->currentText();
                 result_.bodyPointSize = size->value();
@@ -126,6 +163,12 @@ SettingsDialog::SettingsDialog(const Settings& settings, QWidget* parent)
                 result_.autosaveNamedFiles = autosave->isChecked();
                 result_.zenByDefault = zen->isChecked();
                 result_.notesDirectory = notes->text();
+                result_.vaultRoot = vaultRoot->text().trimmed();
+                // Ticking the box without a folder would leave the feature "on"
+                // but pointing nowhere, so it only counts as enabled once there
+                // is a path to enable.
+                result_.vaultEnabled = vaultEnabled->isChecked() && !result_.vaultRoot.isEmpty();
+                result_.vaultSidebarVisible = vaultSidebar->isChecked();
                 accept();
             });
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);

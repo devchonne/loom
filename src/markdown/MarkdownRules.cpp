@@ -53,6 +53,54 @@ static void parseInline(const QString& text, int base, QVector<Span>& spans, boo
         }
 
         if (at(i) == QLatin1Char('[')) {
+            // [[wikilink]] and [[wikilink|alias]]. Checked before the ordinary
+            // link form because both start with '['.
+            //
+            // Precedence note: `[[`...`]]` is also loom's nested-checkbox
+            // syntax. A checkbox is recognised at the start of a line by
+            // parseLine before parseInline ever runs, so it always wins there;
+            // what reaches here is a genuine link. The one casualty is a
+            // line-leading `[[x]]`, which stays a checkbox, so a note named
+            // exactly "x" cannot be addressed at the very start of a line.
+            if (at(i + 1) == QLatin1Char('[')) {
+                const int close = text.indexOf(QStringLiteral("]]"), i + 2);
+                if (close > i + 1) {
+                    const QString inner = text.mid(i + 2, close - i - 2);
+                    const int bar = inner.indexOf(QLatin1Char('|'));
+                    const QString target = (bar >= 0 ? inner.left(bar) : inner).trimmed();
+                    const QString label = bar >= 0 ? inner.mid(bar + 1).trimmed() : target;
+                    const bool leadingCheckbox =
+                        base == 0 && i == 0
+                        && (target.isEmpty() || target == QLatin1String("x")
+                            || target == QLatin1String("X"));
+                    if (!target.isEmpty() && !inner.contains(QLatin1Char('['))
+                        && !leadingCheckbox) {
+                        const int labelStart = bar >= 0 ? i + 2 + bar + 1 : i + 2;
+                        const int labelLength = close - labelStart;
+                        // Everything up to the label is marker: "[[" alone, or
+                        // "[[target|" when an alias is present.
+                        addSpan(spans, base + i, labelStart - i,
+                                revealed ? SpanKind::Marker : SpanKind::HiddenMarker);
+                        if (labelLength > 0) {
+                            addSpan(spans, base + labelStart, labelLength, SpanKind::WikiLinkText,
+                                    heading);
+                        }
+                        addSpan(spans, base + close, 2,
+                                revealed ? SpanKind::Marker : SpanKind::HiddenMarker);
+                        if (links) {
+                            LinkRef ref;
+                            ref.start = base + i;
+                            ref.length = close + 2 - i;
+                            ref.target = target;
+                            ref.wiki = true;
+                            links->push_back(ref);
+                        }
+                        i = close + 2;
+                        continue;
+                    }
+                }
+            }
+
             const int rb = text.indexOf(QLatin1Char(']'), i + 1);
             if (rb > i && at(rb + 1) == QLatin1Char('(')) {
                 const int rp = text.indexOf(QLatin1Char(')'), rb + 2);
@@ -65,7 +113,7 @@ static void parseInline(const QString& text, int base, QVector<Span>& spans, boo
                     addSpan(spans, base + rb, rp - rb + 1,
                             revealed ? SpanKind::LinkUrl : SpanKind::HiddenMarker);
                     if (links) {
-                        links->push_back(LinkRef{base + i, rp - i + 1, target});
+                        links->push_back(LinkRef{base + i, rp - i + 1, target, false});
                     }
                     i = rp + 1;
                     continue;

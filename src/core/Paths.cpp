@@ -47,6 +47,10 @@ QString Paths::radioTagCacheFile() {
     return stateDir() + QStringLiteral("/radio-tags.json");
 }
 
+QString Paths::vaultsFile() {
+    return stateDir() + QStringLiteral("/vaults.json");
+}
+
 QString Paths::omarchyThemeFile() {
     return QStandardPaths::writableLocation(QStandardPaths::GenericStateLocation)
         + QStringLiteral("/omarchy/current/theme/colors.toml");
